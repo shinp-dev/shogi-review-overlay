@@ -142,7 +142,7 @@ internal object BoardAlignment {
         // If no reliable candidate emerges, use a bounded exhaustive sweep.
         // This handles glyphs that are so sharp that every even-pixel coarse
         // sample misses an odd-pixel alignment. At most 9*9 total offsets.
-        if (!requireNotNull(winner).reliable) {
+        if (!requireNotNull(winner).reliable || requireNotNull(winner).occupied < 8) {
             for (dy in -maxShift..maxShift)
                 for (dx in -maxShift..maxShift) tryAt(dx, dy)
         }
