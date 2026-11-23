@@ -1,235 +1,124 @@
 package com.shinpstudio.shogireviewoverlay
 
-import android.graphics.*
-import com.google.android.gms.tasks.Tasks
-import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
-import com.google.mlkit.vision.text.TextRecognition
-import java.util.concurrent.TimeUnit
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.RectF
 
-data class BoardRecognition(val sfen: String?, val message: String, val recognized: Int, val board: List<Piece?>? = null)
+data class BoardRecognition(
+    val sfen: String?,
+    val message: String,
+    val recognized: Int,
+    val board: List<Piece?>? = null
+)
 
 /**
- * In-device OCR: isolate the grid into two atlases, rotate pieces 180 degrees for gote.
- * Do not invent hand pieces or let an uncertain scan overwrite the current position.
+ * 81-square image matching: 8% border excluded; sample 32x32 monochrome pixels;
+ * compare horizontal and vertical ink distributions plus exact pixel positions.
+ *
+ * This class does NOT use OCR, ML Kit, or machine learning inference.
+ * Reference masks are loaded from 16 unpromoted side-specific piece templates.
+ *
+ * It deliberately refuses unknown promoted pieces or uncertain squares. When
+ * previous valid position exists, ReviewStateTracker can reconstruct one legal
+ * move (including drops and captures) from this detected board.
  */
-class ShogiScreenRecognizer : AutoCloseable {
-    private val client = TextRecognition.getClient(JapaneseTextRecognizerOptions.Builder().build())
-    private fun glyph(raw: String, side: Side): Piece? {
-        val t = raw.trim()
-        val promo = t.startsWith("成") || t.startsWith("と") || t.startsWith("龍") ||
-            t.startsWith("竜") || t.startsWith("馬") || t.startsWith("杏") ||
-            t.startsWith("圭") || t.startsWith("全")
-        val type = when {
-            "歩" in t || t.startsWith("と") -> PieceType.PAWN
-            "香" in t || t.startsWith("杏") -> PieceType.LANCE
-            "桂" in t || t.startsWith("圭") -> PieceType.KNIGHT
-            "銀" in t || t.startsWith("全") -> PieceType.SILVER
-            "金" in t -> PieceType.GOLD
-            "角" in t || t.startsWith("馬") -> PieceType.BISHOP
-            "飛" in t || t.startsWith("龍") || t.startsWith("竜") -> PieceType.ROOK
-            "王" in t || "玉" in t -> PieceType.KING
-            else -> return null
-        }
-        return Piece(type, side, promo && type.canPromote)
-    }
-
-    private fun atlas(frame: Bitmap, r: RectF, rotated: Boolean, cell: Int): Bitmap {
-        val out = Bitmap.createBitmap(cell * 9, cell * 9, Bitmap.Config.ARGB_8888)
-        val c = Canvas(out)
-        c.drawColor(Color.WHITE)
-        val paint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
-        for (i in 0..80) {
-            val row = i / 9
-            val col = i % 9
-            val sw = r.width() / 9
-            val sh = r.height() / 9
-            val src = Rect(
-                (r.left + (col + .08f) * sw).toInt().coerceIn(0, frame.width - 1),
-                (r.top + (row + .08f) * sh).toInt().coerceIn(0, frame.height - 1),
-                (r.left + (col + .92f) * sw).toInt().coerceIn(1, frame.width),
-                (r.top + (row + .92f) * sh).toInt().coerceIn(1, frame.height)
-            )
-            if (src.isEmpty) continue
-            c.save()
-            c.translate((col + .5f) * cell, (row + .5f) * cell)
-            if (rotated) c.rotate(180f)
-            val h = cell * .39f
-            c.drawBitmap(frame, src, RectF(-h, -h, h, h), paint)
-            c.restore()
-        }
-        return out
-    }
-
-    private fun recognizeAtlas(bmp: Bitmap, side: Side, cell: Int): Map<Int, Piece> {
-        val result = Tasks.await(client.process(InputImage.fromBitmap(bmp, 0)), 25, TimeUnit.SECONDS)
-        val found = mutableMapOf<Int, Piece>()
-        for (block in result.textBlocks) for (line in block.lines) for (el in line.elements) {
-            val b = el.boundingBox ?: continue
-            val col = (b.centerX() / cell).coerceIn(0, 8)
-            val row = (b.centerY() / cell).coerceIn(0, 8)
-            if (kotlin.math.abs(b.centerX() - (col + .5f) * cell) > cell * .4f ||
-                kotlin.math.abs(b.centerY() - (row + .5f) * cell) > cell * .4f) continue
-            val piece = glyph(el.text, side) ?: continue
-            found.putIfAbsent(row * 9 + col, piece)
-        }
-        return found
-    }
-
-    private fun darkInk(frame: Bitmap, r: RectF, i: Int): Boolean {
-        var n = 0
-        for (y in 3..13) for (x in 3..13) {
-            val px = (r.left + (i % 9 + x / 16f) * r.width() / 9).toInt()
-            val py = (r.top + (i / 9 + y / 16f) * r.height() / 9).toInt()
-            if (px !in 0 until frame.width || py !in 0 until frame.height) continue
-            val p = frame.getPixel(px, py)
-            if (Color.red(p) < 125 && Color.green(p) < 125 && Color.blue(p) < 125) n++
-        }
-        return n >= 3
-    }
-
-    /** Read off-board hand areas. Ambiguous OCR cannot be accepted without inventory validation. */
-    private fun readHands(frame: Bitmap, board: RectF, atTop: Boolean): Map<PieceType, Int> {
-        val sw = board.width()
-        val sh = board.height() / 9f
-        val x0 = board.left.toInt().coerceIn(0, frame.width - 1)
-        val x1 = (board.left + sw * .75f).toInt().coerceIn(x0 + 1, frame.width)
-        val y0 = (if (atTop) board.top - sh * 1.5f else board.bottom + sh * .04f)
-            .toInt().coerceIn(0, frame.height - 1)
-        val y1 = (if (atTop) board.top - sh * .05f else board.bottom + sh * 1.45f)
-            .toInt().coerceIn(y0 + 1, frame.height)
-        val cropped = Bitmap.createBitmap(frame, x0, y0, x1 - x0, y1 - y0)
-        val dst = Bitmap.createScaledBitmap(cropped, 960, 230, true)
-        cropped.recycle()
-        val ocr = if (atTop) {
-            val flip = Matrix().apply { postRotate(180f) }
-            val converted = Bitmap.createBitmap(dst, 0, 0, dst.width, dst.height, flip, true)
-            dst.recycle()
-            converted
-        } else dst
-        val counts = mutableMapOf<PieceType, Int>()
-        try {
-            val lines = Tasks.await(
-                client.process(InputImage.fromBitmap(ocr, 0)), 12, TimeUnit.SECONDS
-            )
-            val pieces = lines.textBlocks.flatMap { it.lines }.flatMap { it.elements }
-            for (element in pieces) {
-                val text = element.text.replace(" ", "").replace("　", "")
-                    .map { ch -> if (ch in '０'..'９') ('0'.code + ch.code - '０'.code).toChar() else ch }
-                    .joinToString("")
-                val type = glyph(text, if (atTop) Side.WHITE else Side.BLACK)?.type ?: continue
-                if (type == PieceType.KING) continue
-                val digits = Regex("[0-9]{1,2}").find(text)?.value?.toIntOrNull()
-                val quantity = (digits ?: 1).coerceIn(1, 18)
-                counts[type] = (counts[type] ?: 0) + quantity
-            }
-        } finally {
-            ocr.recycle()
-        }
-        return counts
-    }
+class ShogiScreenRecognizer(context: Context) : AutoCloseable {
+    private val pieces: PieceTemplateModel = PieceTemplateModel.create(
+        context.assets.open("shogi_templates_v1.txt").bufferedReader().use { it.readText() }
+    )
+    private val inset = PieceTemplateModel.INSET
 
     /**
-     * Shogi Wars live match has a large cyan surrender (投了) button above
-     * the board. Never calculate candidate moves while it is visible.
+     * Conservative UI guard, not a general live/replay classifier:
+     * a large blue/cyan surrender button above the board means live mode.
      */
     fun looksLikeActiveMatch(frame: Bitmap, board: RectF): Boolean {
-        val cellHeight = board.height() / 9f
+        val h = board.height() / 9f
         val left = (board.right - board.width() * .27f).toInt().coerceIn(0, frame.width - 1)
         val right = (board.right - board.width() * .135f).toInt().coerceIn(left + 1, frame.width)
-        val top = (board.top - 1.55f * cellHeight).toInt().coerceIn(0, frame.height - 1)
-        val bottom = (board.top - .25f * cellHeight).toInt().coerceIn(top + 1, frame.height)
+        val top = (board.top - 1.55f * h).toInt().coerceIn(0, frame.height - 1)
+        val bottom = (board.top - .25f * h).toInt().coerceIn(top + 1, frame.height)
         var blue = 0
         var total = 0
         for (y in top until bottom step 4) for (x in left until right step 4) {
             val color = frame.getPixel(x, y)
-            val red = Color.red(color)
-            val green = Color.green(color)
+            val r = Color.red(color)
+            val g = Color.green(color)
             val b = Color.blue(color)
-            if (b > 135 && b > red + 40 && green > red + 35) blue++
+            if (b > 135 && b > r + 40 && g > r + 35) blue++
             total++
         }
-        return total > 40 && blue.toFloat() / total > .38f
+        return total > 40 && blue.toFloat() / total > 0.38f
     }
 
     fun recognize(frame: Bitmap, geometry: BoardRect, turn: Side): BoardRecognition {
         val r = geometry.pixels(frame.width, frame.height)
         if (r.left < 0 || r.top < 0 || r.right > frame.width || r.bottom > frame.height ||
             r.width() < 300 || r.height() < 300)
-            return BoardRecognition(null, "盤面位置の調整が必要です", 0)
+            return BoardRecognition(null, "盤面位置を調整してください", 0)
         if (looksLikeActiveMatch(frame, r))
-            return BoardRecognition(null, "対局中の画面（投了ボタン）と判定しました。対局後の振り返りでのみ使用してください", 0)
-        val cell = 112
-        val normal = atlas(frame, r, false, cell)
-        val rotated = atlas(frame, r, true, cell)
-        val black: Map<Int, Piece>
-        val white: Map<Int, Piece>
-        try {
-            black = recognizeAtlas(normal, Side.BLACK, cell)
-            white = recognizeAtlas(rotated, Side.WHITE, cell)
-        } finally {
-            normal.recycle()
-            rotated.recycle()
-        }
+            return BoardRecognition(null, "対局中の画面を検出したため解析しません", 0)
+
+        // Read the frame once. All 81*1024 binary pixel samples use this array;
+        // no per-square Bitmap allocation, OCR call or external dependency.
+        val pixels = IntArray(frame.width * frame.height)
+        frame.getPixels(pixels, 0, frame.width, 0, 0, frame.width, frame.height)
+
         val board = MutableList<Piece?>(81) { null }
-        var ambiguous = 0
-        for (i in 0..80) {
-            val a = black[i]
-            val b = white[i]
-            board[i] = when {
-                a == null -> b
-                b == null -> a
-                else -> {
-                    if (a.type != b.type || a.promoted != b.promoted) ambiguous++
-                    if (i / 9 < 4) b else a
-                }
+        var uncertain = 0
+        var occupied = 0
+        var minScore = 1.0
+        for (square in 0..80) {
+            val features = PieceTemplateModel.sample(
+                pixels, frame.width, frame.height,
+                r.left, r.top, r.width(), r.height(), square, inset
+            )
+            val result = pieces.match(features)
+            if (result.unknown) {
+                uncertain++
+                continue
             }
-            if (board[i] == null && darkInk(frame, r, i)) ambiguous++
+            val code = result.code ?: continue
+            occupied++
+            minScore = kotlin.math.min(minScore, result.score)
+            board[square] = Piece(
+                PieceType.fromSfen(code),
+                if (code.isUpperCase()) Side.BLACK else Side.WHITE
+            )
         }
-        val occupied = board.count { it != null }
-        val kings = Side.entries.all { side ->
+        val kingsValid = Side.entries.all { side ->
             board.count { it?.type == PieceType.KING && it.side == side } == 1
         }
-        if (occupied !in 2..40 || ambiguous != 0 || !kings)
-            return BoardRecognition(null, "認識未確定：盤上" + occupied +
-                "/40、不確実" + ambiguous + "、王将" + (if (kings) "OK" else "NG") +
-                "。持ち駒・駒種を確認してSFENを修正してください", occupied,
-                if (ambiguous == 0 && kings) board else null)
-        val sfenBoard = (0..8).joinToString("/") { row ->
-            val result = StringBuilder()
-            var empty = 0
-            for (col in 0..8) {
-                val p = board[row * 9 + col]
-                if (p == null) { empty++; continue }
-                if (empty > 0) { result.append(empty); empty = 0 }
-                if (p.promoted) result.append('+')
-                result.append(if (p.side == Side.BLACK) p.type.sfen else p.type.sfen.lowercaseChar())
-            }
-            if (empty > 0) result.append(empty)
-            result.toString()
+        if (uncertain > 0 || !kingsValid)
+            return BoardRecognition(
+                null,
+                "画像比較が未確定: $occupied枚 / 不確定$uncertainマス / 王将" +
+                    (if (kingsValid) "OK" else "NG") + "。テンプレートを追加してください",
+                occupied
+            )
+
+        // We do not synthesize hands from missing board pieces. A previous
+        // trusted position may reconstruct hands from exactly one legal move.
+        if (occupied != 40) {
+            return BoardRecognition(
+                null,
+                "盤上$occupied枚を画像比較で認識。持ち駒は直前の合法局面から復元します",
+                occupied,
+                board
+            )
         }
-        val lower = if (occupied < 40) readHands(frame, r, atTop = false) else emptyMap()
-        val upper = if (occupied < 40) readHands(frame, r, atTop = true) else emptyMap()
-        val handBuffer = StringBuilder()
-        for ((side, held) in listOf(Side.BLACK to lower, Side.WHITE to upper)) {
-            for (type in listOf(PieceType.ROOK, PieceType.BISHOP, PieceType.GOLD,
-                PieceType.SILVER, PieceType.KNIGHT, PieceType.LANCE, PieceType.PAWN)) {
-                val number = held[type] ?: 0
-                if (number > 1) handBuffer.append(number)
-                if (number > 0) handBuffer.append(
-                    if (side == Side.BLACK) type.sfen else type.sfen.lowercaseChar()
-                )
-            }
-        }
-        val hands = if (handBuffer.isEmpty()) "-" else handBuffer.toString()
-        val sfen = sfenBoard + (if (turn == Side.BLACK) " b " else " w ") + hands + " 1"
-        val validated = try {
-            val parsed = Sfen.parse(sfen)
-            ReviewStateTracker.inventoryIsValid(parsed)
-        } catch (_: Exception) { false }
-        if (!validated) return BoardRecognition(null, "駒の種類または総数が不整合です", occupied, board)
-        return BoardRecognition(sfen, "盤上" + occupied + "枚、持ち駒" + hands + "をOCRで認識", occupied, board)
+        val position = ShogiPosition(
+            board = board,
+            turn = turn,
+            hands = mapOf(Side.BLACK to emptyMap(), Side.WHITE to emptyMap()),
+            ply = 1
+        )
+        if (!ReviewStateTracker.inventoryIsValid(position))
+            return BoardRecognition(null, "駒種ごとの枚数が不整合です", occupied)
+        val sfen = ReviewStateTracker.format(position)
+        return BoardRecognition(sfen, "画像比較で40枚を認識（最低スコア: %.2f）".format(minScore), occupied, board)
     }
 
-    override fun close() { client.close() }
+    override fun close() = Unit
 }
