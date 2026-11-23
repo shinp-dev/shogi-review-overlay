@@ -93,7 +93,7 @@ class ShogiScreenRecognizer(private val context: Context) : AutoCloseable {
         if (uncertain > 0 || !kingsValid)
             return BoardRecognition(
                 null,
-                "画像比較が未確定: $occupied枚 / 不確定$uncertainマス / 王将" +
+                "画像比較が未確定: " + occupied + "枚 / 不確定" + uncertain + "マス / 王将" +
                     (if (kingsValid) "OK" else "NG") + "。テンプレートを追加してください",
                 occupied
             )
@@ -103,7 +103,7 @@ class ShogiScreenRecognizer(private val context: Context) : AutoCloseable {
         if (occupied != 40) {
             return BoardRecognition(
                 null,
-                "盤上$occupied枚を画像比較で認識。持ち駒は直前の合法局面から復元します",
+                "盤上" + occupied + "枚を画像比較で認識。持ち駒は直前の合法局面から復元します",
                 occupied,
                 board
             )
