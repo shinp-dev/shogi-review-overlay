@@ -38,11 +38,11 @@ class BoardCalibrationView(
         super.onDraw(canvas)
         if (!initialized) return
         paint.style = Paint.Style.FILL
-        paint.color = 0x3031D2F1
+        paint.color = 0x3040E080
         canvas.drawRect(box, paint)
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = dp(2.2f)
-        paint.color = Color.CYAN
+        paint.color = 0xFF40E080.toInt()
         canvas.drawRect(box, paint)
         paint.strokeWidth = dp(0.9f)
         paint.color = 0xCCFFFFFF.toInt()
@@ -53,7 +53,7 @@ class BoardCalibrationView(
             canvas.drawLine(box.left, y, box.right, y, paint)
         }
         paint.style = Paint.Style.FILL
-        paint.color = 0xFF00BED9.toInt()
+        paint.color = 0xFF137365.toInt()
         canvas.drawCircle(box.right, box.bottom, dp(17f), paint)
 
         val done = doneRect()
