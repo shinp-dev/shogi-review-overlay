@@ -20,12 +20,12 @@
 ## ビルド
 JDK 17 と Android SDK API 35、Gradle 8.9 が必要です。
 
-\`\`\`bash
+```bash
 gradle :app:assembleDebug
 gradle :app:testDebugUnitTest
-\`\`\`
+```
 
-成果物は \`app/build/outputs/apk/debug/app-debug.apk\`。
+成果物は `app/build/outputs/apk/debug/app-debug.apk`。
 
 ## 使い方
 1. アプリを起動し「他のアプリの上に表示」を許可する。
@@ -35,7 +35,7 @@ gradle :app:testDebugUnitTest
 5. 終了時は「オーバーレイ停止」を押す。
 
 初期局面のSFEN: 
-\`lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1\`
+`lnsgkgsnl/1r5b1/ppppppppp/9/9/9/PPPPPPPPP/1B5R1/LNSGKGSNL b - 1`
 
 ## 今後
 1. 将棋ウォーズ盤面・持ち駒の画像認識と、認識失敗時の手動修正
@@ -43,4 +43,4 @@ gradle :app:testDebugUnitTest
 3. Android向け将棋エンジン（USI/MultiPV）と探索設定の接続
 4. 実機での表示座標・操作透過・長時間利用／メモリの検証
 
-設計上、解析結果は \`Candidate\`、盤面は \`ShogiPosition\`、描画は \`CandidateOverlayView\` に分離しています。実エンジンの候補を表示する際も描画側を差し替える必要はありません。
+設計上、解析結果は `Candidate`、盤面は `ShogiPosition`、描画は `CandidateOverlayView` に分離しています。実エンジンの候補を表示する際も描画側を差し替える必要はありません。
