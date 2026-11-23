@@ -58,7 +58,7 @@ class MainActivity : Activity() {
 
         content.addView(text("将棋レビュー・オーバーレイ", 23f))
         content.addView(text("対局後の振り返り専用です。対局中には使用しないでください。", 14f))
-        content.addView(text("駒認識は画像OCR、探索はやねうら王Material版です。認識が不確実なときはSFEN手入力で補正できます。", 13f))
+        content.addView(text("駒認識は白黒画像比較（上下左右8%を除外）、探索はやねうら王Material版です。不確実な場合はSFENを手入力できます。", 13f))
 
         button("① ほかのアプリの上に表示を許可") {
             val intent = Intent(
@@ -71,6 +71,20 @@ class MainActivity : Activity() {
             startOverlay(OverlayService.ACTION_CALIBRATE)
             Toast.makeText(this, "将棋ウォーズの振り返り画面に切り替え、枠を合わせて「完了」", Toast.LENGTH_LONG).show()
         }
+
+        val cropLabel = text("枠線の除外: 外周8%（盤面の線を含めない）", 14f)
+        content.addView(cropLabel)
+        val cropSlider = SeekBar(this).apply {
+            max = 6
+            progress = prefs.getInt("crop_margin_pct", 8).coerceIn(6, 12) - 6
+        }
+        cropLabel.text = "枠線の除外: 外周" + (cropSlider.progress + 6) + "%"
+        cropSlider.setOnSeekBarChangeListener(changeListener { step ->
+            val pct = step + 6
+            prefs.edit().putInt("crop_margin_pct", pct).apply()
+            cropLabel.text = "枠線の除外: 外周" + pct + "%"
+        })
+        content.addView(cropSlider)
 
         button("③ 盤面を自動認識・解析（画面共有を許可）") {
             if (!Settings.canDrawOverlays(this)) {

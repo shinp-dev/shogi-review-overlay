@@ -9,8 +9,8 @@ android {
         applicationId = "com.shinpstudio.shogireviewoverlay"
         minSdk = 29
         targetSdk = 35
-        versionCode = 2
-        versionName = "0.2.0"
+        versionCode = 3
+        versionName = "0.3.0"
         ndk { abiFilters += "arm64-v8a" }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
@@ -24,6 +24,5 @@ android {
     kotlinOptions { jvmTarget = "17" }
 }
 dependencies {
-    implementation("com.google.mlkit:text-recognition-japanese:16.0.1")
     testImplementation("junit:junit:4.13.2")
 }

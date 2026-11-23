@@ -17,7 +17,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * User-approved MediaProjection capture session.
- * The OCR + engine run entirely on the handset; images are never persisted.
+ * The binary template matcher + engine run entirely on the handset; images are never persisted.
  * An invalid or partial position never replaces the preceding display.
  */
 class ReviewCaptureService : Service() {
@@ -48,7 +48,7 @@ class ReviewCaptureService : Service() {
         getSystemService(NotificationManager::class.java).createNotificationChannel(
             NotificationChannel(CHANNEL, "将棋の盤面認識", NotificationManager.IMPORTANCE_LOW)
         )
-        recognizer = ShogiScreenRecognizer()
+        recognizer = ShogiScreenRecognizer(this)
     }
     override fun onBind(intent: Intent?): IBinder? = null
 
