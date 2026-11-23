@@ -120,56 +120,86 @@ internal class QuestHandRecognizer(iconText: String, digitText: String) {
         return 77 * r + 150 * g + 29 * b < 108 * 256
     }
 
+    // In Quest, holding pieces sit on the same nine-column grid as the board,
+    // even when the upper tray contains gaps between icons. Check *all nine*
+    // candidate cells in both trays; do not scan or merge arbitrary columns.
+    private data class Slot(val x: Int, val y: Int, val w: Int, val h: Int)
+
+    private fun slot(
+        boardLeft: Float, boardTop: Float, boardW: Float, boardH: Float,
+        side: Side, index: Int
+    ): Slot {
+        require(index in 0..8)
+        val cellW = boardW / 9f
+        val cellH = boardH / 9f
+        val x = boardLeft + (index + .08f) * cellW
+        // Upper tray is anchored immediately above the board; lower tray
+        // immediately beneath it. Both retain the board's horizontal grid.
+        val y = if (side == Side.WHITE) boardTop - 1.17f * cellH
+                else boardTop + boardH + .07f * cellH
+        return Slot(
+            x.roundToInt(), y.roundToInt(),
+            (.84f * cellW).roundToInt(), (1.10f * cellH).roundToInt()
+        )
+    }
+
     /**
-     * Find gold vertical silhouettes; the icons can shift horizontally as the
-     * hand grows, so no fixed x-coordinates or predetermined icon count.
+     * Require a substantial gold region in the *center* of a candidate slot
+     * so portraits, timers and the backdrop don't become phantom held pieces.
+     * Then obtain the actual gold outline from within that single slot. The
+     * resulting bounding box is used for glyph and badge sampling.
      */
+    private fun goldRect(pixels: IntArray, w: Int, h: Int, slot: Slot): Icon? {
+        if (slot.x < 0 || slot.y < 0 || slot.w < 24 || slot.h < 24 ||
+            slot.x + slot.w > w || slot.y + slot.h > h) return null
+
+        val cx0 = slot.x + (.17f * slot.w).roundToInt()
+        val cx1 = slot.x + (.83f * slot.w).roundToInt()
+        val cy0 = slot.y + (.22f * slot.h).roundToInt()
+        val cy1 = slot.y + (.79f * slot.h).roundToInt()
+        var present = 0
+        for (y in cy0 until cy1) for (x in cx0 until cx1) {
+            if (isGold(pixels[y * w + x])) present++
+        }
+        val area = (cx1 - cx0) * (cy1 - cy0)
+        if (area <= 0 || present < .35f * area) return null
+
+        var left = slot.x + slot.w
+        var top = slot.y + slot.h
+        var right = slot.x - 1
+        var bottom = slot.y - 1
+        for (y in slot.y until slot.y + slot.h) {
+            for (x in slot.x until slot.x + slot.w) {
+                if (!isGold(pixels[y * w + x])) continue
+                left = min(left, x)
+                top = min(top, y)
+                right = max(right, x)
+                bottom = max(bottom, y)
+            }
+        }
+        if (right - left < .45f * slot.w ||
+            bottom - top < .40f * slot.h) return null
+        return Icon(left, right + 1, top, bottom + 1)
+    }
+
+    internal fun occupiedSlotIndices(
+        pixels: IntArray, width: Int, height: Int,
+        boardLeft: Float, boardTop: Float, boardW: Float, boardH: Float,
+        side: Side
+    ): List<Int> = (0..8).filter { index ->
+        goldRect(
+            pixels, width, height,
+            slot(boardLeft, boardTop, boardW, boardH, side, index)
+        ) != null
+    }
+
     private fun locateIcons(
         pixels: IntArray, w: Int, h: Int, left: Float, top: Float,
         boardW: Float, boardH: Float, side: Side
-    ): List<Icon>? {
-        val cellW = boardW / 9f
-        val cellH = boardH / 9f
-        val a = if (side == Side.WHITE) top - 1.12f * cellH
-                else top + boardH + 0.10f * cellH
-        val b = if (side == Side.WHITE) top - 0.15f * cellH
-                else top + boardH + 1.20f * cellH
-        if (a < 0f || b > h.toFloat()) return null
-        val y0 = a.roundToInt().coerceIn(0, h)
-        val y1 = b.roundToInt().coerceIn(0, h)
-        val x0 = (left - 0.02f * cellW).roundToInt().coerceIn(0, w)
-        val x1 = (left + boardW + 0.02f * cellW).roundToInt().coerceIn(0, w)
-        if (x1 <= x0 || y1 <= y0) return null
-        val column = IntArray(w)
-        for (y in y0 until y1) {
-            val offset = y * w
-            for (x in x0 until x1) {
-                if (isGold(pixels[offset + x])) column[x]++
-            }
+    ): List<Icon> {
+        return (0..8).mapNotNull { index ->
+            goldRect(pixels, w, h, slot(left, top, boardW, boardH, side, index))
         }
-        val required = max(4, ((y1 - y0) * 0.12f).roundToInt())
-        val result = ArrayList<Icon>()
-        var x = x0
-        while (x < x1) {
-            if (column[x] < required) { x++; continue }
-            val start = x
-            while (x < x1 && column[x] >= required) x++
-            val finish = x
-            if (finish - start < cellW * 0.30f) continue
-            if (finish - start > cellW * 1.35f) return null
-            var minY = y1
-            var maxY = y0 - 1
-            for (row in y0 until y1) for (col in start until finish) {
-                if (isGold(pixels[row * w + col])) {
-                    minY = min(minY, row)
-                    maxY = max(maxY, row)
-                }
-            }
-            if (maxY <= minY) return null
-            result += Icon(start, finish, minY, maxY)
-            if (result.size > 7) return null
-        }
-        return result
     }
 
     private fun sampleIcon(pixels: IntArray, w: Int, h: Int, icon: Icon): Glyph {
