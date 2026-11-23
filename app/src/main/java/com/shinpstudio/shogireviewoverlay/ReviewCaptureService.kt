@@ -39,6 +39,7 @@ class ReviewCaptureService : Service() {
     private var captureReady = false
     private var lastRequest = 0L
     private var lastSfen = ""
+    private var lastState: ShogiPosition? = null
     private lateinit var recognizer: ShogiScreenRecognizer
 
     override fun onCreate() {
@@ -153,10 +154,12 @@ class ReviewCaptureService : Service() {
             BoardRecognition(null, "画像認識に失敗: " + error.message, 0)
         }
         saveStatus(state.message)
-        val sfen = state.sfen ?: return
+        val inferred = if (state.board != null && lastState != null)
+            ReviewStateTracker.resolve(requireNotNull(lastState), state.board) else null
+        val position = inferred ?: state.sfen?.let { Sfen.parse(it) } ?: return
+        val sfen = ReviewStateTracker.format(position)
         if (sfen == lastSfen) return
         try {
-            val position = Sfen.parse(sfen)
             val values = UsiEngine(this).analyze(
                 sfen, position, OverlaySettings.count(this),
                 prefs.getInt("think_ms", 1200)
@@ -169,6 +172,7 @@ class ReviewCaptureService : Service() {
             }
             startService(updated)
             lastSfen = sfen
+            lastState = position
             prefs.edit().putString("last_auto_sfen", sfen).apply()
             saveStatus("認識・探索成功: " + values.joinToString { it.label })
         } catch (error: Exception) {
