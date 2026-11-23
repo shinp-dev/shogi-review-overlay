@@ -57,10 +57,7 @@ internal object BoardAlignment {
             val result = classifier.match(signature)
             if (result.unknown) { missing++; continue }
             val code = result.code ?: continue
-            board[square] = Piece(
-                PieceType.fromSfen(code),
-                if (code.isUpperCase()) Side.BLACK else Side.WHITE
-            )
+            board[square] = PieceTemplateModel.pieceForCode(code)
             occupied++
             total += result.score
             minScore = min(minScore, result.score)
