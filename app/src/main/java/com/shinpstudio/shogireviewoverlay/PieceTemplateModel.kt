@@ -2,6 +2,7 @@ package com.shinpstudio.shogireviewoverlay
 
 import java.util.Base64
 import kotlin.math.sqrt
+import kotlin.math.roundToInt
 
 /**
  * 32x32 monochrome piece templates.
@@ -97,9 +98,9 @@ internal class PieceTemplateModel(private val templates: Map<Char, Signature>) {
             val mask = BooleanArray(1024)
             for (y in 0 until TILE) for (x in 0 until TILE) {
                 val sx = (x0 + (x + .5f) / TILE * usableW - .5f)
-                    .toInt().coerceIn(0, imageWidth - 1)
+                    .roundToInt().coerceIn(0, imageWidth - 1)
                 val sy = (y0 + (y + .5f) / TILE * usableH - .5f)
-                    .toInt().coerceIn(0, imageHeight - 1)
+                    .roundToInt().coerceIn(0, imageHeight - 1)
                 val pixel = argb[sy * imageWidth + sx]
                 val red = (pixel ushr 16) and 255
                 val green = (pixel ushr 8) and 255
