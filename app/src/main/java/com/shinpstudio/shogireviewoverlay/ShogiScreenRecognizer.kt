@@ -52,6 +52,13 @@ class ShogiScreenRecognizer(private val context: Context) : AutoCloseable {
             .bufferedReader().use { it.readText() }
     )
 
+    private val warsHands = WarsHandRecognizer(
+        context.assets.open("shogi_wars_hand_icons_v1.txt")
+            .bufferedReader().use { it.readText() },
+        context.assets.open("shogi_wars_hand_digits_v1.txt")
+            .bufferedReader().use { it.readText() }
+    )
+
     fun recognize(frame: Bitmap, geometry: BoardRect, turn: Side): BoardRecognition {
         val r = geometry.pixels(frame.width, frame.height)
         if (r.left < 0 || r.top < 0 || r.right > frame.width || r.bottom > frame.height ||
@@ -79,6 +86,23 @@ class ShogiScreenRecognizer(private val context: Context) : AutoCloseable {
                 "（補正: " + corrected.dx + "," + corrected.dy + "px）",
             occupied
         )
+        // The Wars tray has a different style and no fixed piece order.
+        // Use a restricted set of verified real-image hand glyphs and validate
+        // the entire inventory before using a midgame SFEN.
+        if (OverlaySettings.target(context) == ReviewTarget.SHOGI_WARS) {
+            val hands = warsHands.recognize(
+                pixels, frame.width, frame.height,
+                r.left + corrected.dx, r.top + corrected.dy, r.width(), r.height(), board
+            )
+            if (hands != null) {
+                val position = ShogiPosition(board, turn, hands, 1)
+                return BoardRecognition(
+                    ReviewStateTracker.format(position),
+                    "ウォーズ：盤上${occupied}枚＋持ち駒${40 - occupied}枚を照合（手番は設定値）",
+                    occupied, board, corrected.dx, corrected.dy
+                )
+            }
+        }
         // A Quest review can start at any move if both holding trays are
         // visible and their red counts, together with the board, pass
         // the standard 40-piece inventory. Unknown numbers fail closed.
