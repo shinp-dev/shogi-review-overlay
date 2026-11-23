@@ -247,7 +247,7 @@ class MainActivity : Activity() {
         val count = OverlaySettings.count(this)
         Thread {
             try {
-                val candidates = UsiEngine(this).analyze(text, position, count, prefs.getInt("think_ms", 1200))
+                val candidates = UsiEngine(this).analyze(text, position, count, OverlaySettings.preferences(this).getInt("think_ms", 1200))
                 runOnUiThread {
                     if (candidates.isEmpty()) {
                         status.text = "合法手がありません。王手・終局を確認してください。"
