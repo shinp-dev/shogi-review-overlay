@@ -88,6 +88,26 @@ class ShogiScreenRecognizer : AutoCloseable {
         return n >= 3
     }
 
+    private fun bottomHand(frame: Bitmap, r: RectF): PieceType? {
+        val sw = r.width() / 9f
+        val sh = r.height() / 9f
+        val x = r.left.toInt().coerceIn(0, frame.width - 1)
+        val y = (r.bottom + sh * .08f).toInt().coerceIn(0, frame.height - 1)
+        val right = (r.left + sw * 1.5f).toInt().coerceIn(x + 1, frame.width)
+        val bottom = (r.bottom + sh * 1.17f).toInt().coerceIn(y + 1, frame.height)
+        val crop = Bitmap.createBitmap(frame, x, y, right - x, bottom - y)
+        val enlarged = Bitmap.createScaledBitmap(crop, 300, 240, true)
+        crop.recycle()
+        try {
+            val text = Tasks.await(
+                client.process(InputImage.fromBitmap(enlarged, 0)), 12, TimeUnit.SECONDS
+            )
+            val types = text.textBlocks.flatMap { it.lines }
+                .flatMap { it.elements }.mapNotNull { glyph(it.text, Side.BLACK)?.type }
+            return types.singleOrNull()
+        } finally { enlarged.recycle() }
+    }
+
     fun recognize(frame: Bitmap, geometry: BoardRect, turn: Side): BoardRecognition {
         val r = geometry.pixels(frame.width, frame.height)
         if (r.left < 0 || r.top < 0 || r.right > frame.width || r.bottom > frame.height ||
@@ -124,7 +144,7 @@ class ShogiScreenRecognizer : AutoCloseable {
         val kings = Side.entries.all { side ->
             board.count { it?.type == PieceType.KING && it.side == side } == 1
         }
-        if (occupied != 40 || ambiguous != 0 || !kings)
+        if (occupied !in 39..40 || ambiguous != 0 || !kings)
             return BoardRecognition(null, "認識未確定：盤上" + occupied +
                 "/40、不確実" + ambiguous + "、王将" + (if (kings) "OK" else "NG") +
                 "。持ち駒・駒種を確認してSFENを修正してください", occupied,
@@ -142,13 +162,18 @@ class ShogiScreenRecognizer : AutoCloseable {
             if (empty > 0) result.append(empty)
             result.toString()
         }
-        val sfen = sfenBoard + (if (turn == Side.BLACK) " b - 1" else " w - 1")
+        val lowerHand = if (occupied == 39) bottomHand(frame, r) else null
+        if (occupied == 39 && lowerHand == null) {
+            return BoardRecognition(null, "持ち駒が認識できません。SFENを確認してください", occupied, board)
+        }
+        val hand = lowerHand?.sfen?.toString() ?: "-"
+        val sfen = sfenBoard + (if (turn == Side.BLACK) " b " else " w ") + hand + " 1"
         val validated = try {
             val parsed = Sfen.parse(sfen)
             ReviewStateTracker.inventoryIsValid(parsed)
         } catch (_: Exception) { false }
         if (!validated) return BoardRecognition(null, "駒の種類または総数が不整合です", occupied, board)
-        return BoardRecognition(sfen, "盤上40枚をOCRで認識。持ち駒なし", occupied, board)
+        return BoardRecognition(sfen, "盤上" + occupied + "枚をOCRで認識（持ち駒: " + (lowerHand?.kanji ?: "なし") + "）", occupied, board)
     }
 
     override fun close() { client.close() }
