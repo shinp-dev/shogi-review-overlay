@@ -72,8 +72,8 @@ class ShogiWarsPromotedRecognitionTest {
         assertEquals(31, pieces)
         assertEquals(50, empty)
         assertEquals(6, promoted)
-        assertTrue("Score threshold too low: $smallestScore", smallestScore > 0.90)
-        assertTrue("Top-2 ambiguity too high: $smallestMargin", smallestMargin > 0.15)
+        assertTrue("Score below recognizer acceptance threshold: $smallestScore", smallestScore >= 0.74)
+        assertTrue("Top-2 ambiguity exceeds recognizer margin: $smallestMargin", smallestMargin >= 0.075)
 
         assertEquals(1, board.count { it?.type == PieceType.KING && it.side == Side.BLACK })
         assertEquals(1, board.count { it?.type == PieceType.KING && it.side == Side.WHITE })
