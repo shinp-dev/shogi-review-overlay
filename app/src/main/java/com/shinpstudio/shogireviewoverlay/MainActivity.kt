@@ -196,6 +196,7 @@ class MainActivity : Activity() {
             putExtra(ReviewCaptureService.EXTRA_DATA, data)
         }
         try {
+            startOverlay(OverlayService.ACTION_REFRESH)
             startForegroundService(intent)
             status.text = "認識を開始しました。将棋ウォーズの対局後振り返りへ切り替えてください"
         } catch (e: Exception) {
