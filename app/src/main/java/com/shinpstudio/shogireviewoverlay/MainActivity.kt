@@ -72,6 +72,20 @@ class MainActivity : Activity() {
             Toast.makeText(this, "将棋ウォーズの振り返り画面に切り替え、枠を合わせて「完了」", Toast.LENGTH_LONG).show()
         }
 
+        val cropLabel = text("枠線の除外: 外周8%（盤面の線を含めない）", 14f)
+        content.addView(cropLabel)
+        val cropSlider = SeekBar(this).apply {
+            max = 6
+            progress = prefs.getInt("crop_margin_pct", 8).coerceIn(6, 12) - 6
+        }
+        cropLabel.text = "枠線の除外: 外周" + (cropSlider.progress + 6) + "%"
+        cropSlider.setOnSeekBarChangeListener(changeListener { step ->
+            val pct = step + 6
+            prefs.edit().putInt("crop_margin_pct", pct).apply()
+            cropLabel.text = "枠線の除外: 外周" + pct + "%"
+        })
+        content.addView(cropSlider)
+
         button("③ 盤面を自動認識・解析（画面共有を許可）") {
             if (!Settings.canDrawOverlays(this)) {
                 status.text = "先にオーバーレイ権限を許可してください"
