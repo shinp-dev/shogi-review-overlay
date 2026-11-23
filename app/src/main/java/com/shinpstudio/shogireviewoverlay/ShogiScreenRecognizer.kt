@@ -19,7 +19,7 @@ data class BoardRecognition(
  *
  * This class does NOT use OCR, ML Kit, or machine learning inference.
  * Reference masks are selected from Wars (base plus promoted templates)
- * or Quest (16 unpromoted, side-specific pieces).
+ * or Quest (base plus promoted templates).
  *
  * It deliberately refuses uncertain squares. When
  * previous valid position exists, ReviewStateTracker can reconstruct one legal
@@ -36,7 +36,13 @@ class ShogiScreenRecognizer(private val context: Context) : AutoCloseable {
         }
     )
     private val questPieces: PieceTemplateModel = PieceTemplateModel.create(
-        context.assets.open("shogi_quest_templates_v1.txt").bufferedReader().use { it.readText() }
+        listOf(
+            "shogi_quest_templates_v1.txt", // Original 16 basic-piece refs
+            "shogi_quest_variants_v1.txt", // More basic-piece refs from later replay
+            "shogi_quest_promoted_v1.txt" // 6 promoted kinds, 2 orientations
+        ).joinToString("\n") { file ->
+            context.assets.open(file).bufferedReader().use { it.readText() }
+        }
     )
 
     fun recognize(frame: Bitmap, geometry: BoardRect, turn: Side): BoardRecognition {
