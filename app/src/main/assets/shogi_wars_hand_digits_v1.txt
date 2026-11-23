@@ -1,0 +1,5 @@
+# Wars badge numerals, yellow glyph silhouettes extracted from user-provided replay image.
+# Only 2 and 3 have verified examples; unknown badges must be rejected.
+2:AEAAwAD8Af4DxwOHB4cDBwAHAAYADgAOADgAcADwAeABgAMAAwAH/wf/DAAYAHAA
+3:AcAP/B/+P/94H3AP8AcABwAHAA8AHwP8A/gD/gA/AA8ABwAH8AdwB3gHfA8//x/+
+3:A+AP/D/+fB94D/AH8AcABwAPAA8APgP8A/gD/gAfAAcABwAD8APwB/gPfB8//h/8
