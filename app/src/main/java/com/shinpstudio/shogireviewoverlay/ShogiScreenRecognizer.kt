@@ -133,7 +133,7 @@ class ShogiScreenRecognizer : AutoCloseable {
      * Shogi Wars live match has a large cyan surrender (投了) button above
      * the board. Never calculate candidate moves while it is visible.
      */
-    private fun looksLikeActiveMatch(frame: Bitmap, board: RectF): Boolean {
+    fun looksLikeActiveMatch(frame: Bitmap, board: RectF): Boolean {
         val cellHeight = board.height() / 9f
         val left = (board.right - board.width() * .27f).toInt().coerceIn(0, frame.width - 1)
         val right = (board.right - board.width() * .135f).toInt().coerceIn(left + 1, frame.width)
