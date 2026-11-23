@@ -170,7 +170,7 @@ class CandidateOverlayView(context: Context) : View(context) {
     private fun drawHeader(canvas: Canvas, board: RectF) {
         val size = OverlaySettings.fontSp(context) *
             resources.displayMetrics.scaledDensity
-        val text = "簡易解析・候補 " + candidates.size + " 手"
+        val text = "将棋解析・候補 " + candidates.size + " 手"
         paint.typeface = Typeface.create("sans-serif-medium", Typeface.BOLD)
         paint.textSize = size
         val boxWidth = paint.measureText(text) + dp(24f)
