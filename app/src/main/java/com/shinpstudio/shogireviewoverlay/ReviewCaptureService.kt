@@ -37,6 +37,9 @@ class ReviewCaptureService : Service() {
     private val work = Executors.newSingleThreadExecutor()
     private val busy = AtomicBoolean(false)
     private var lastSfen = ""
+    private var lastBoardSignature = 0L
+    private var lastRejectedSignature = 0L
+    private var lastRejectedAt = 0L
     private var lastState: ShogiPosition? = null
     private lateinit var recognizer: ShogiScreenRecognizer
 
@@ -161,7 +164,26 @@ class ReviewCaptureService : Service() {
     }
     private fun scheduleCapture() { main.postDelayed(nextCapture, 1800) }
 
+    private fun signature(bitmap: Bitmap): Long {
+        val board = OverlaySettings.board(this).pixels(bitmap.width, bitmap.height)
+        var hash = 1469598103934665603L
+        for (row in 0..8) for (col in 0..8) for (step in 0..8) {
+            val dx = (step % 3 - 1) * .20f
+            val dy = (step / 3 - 1) * .20f
+            val x = (board.left + (col + .5f + dx) * board.width() / 9)
+                .toInt().coerceIn(0, bitmap.width - 1)
+            val y = (board.top + (row + .5f + dy) * board.height() / 9)
+                .toInt().coerceIn(0, bitmap.height - 1)
+            hash = (hash xor bitmap.getPixel(x, y).toLong()) * 1099511628211L
+        }
+        return hash
+    }
+
     private fun scan(bitmap: Bitmap) {
+        val hash = signature(bitmap)
+        if (hash == lastBoardSignature && lastSfen.isNotEmpty()) return
+        if (hash == lastRejectedSignature &&
+            SystemClock.elapsedRealtime() - lastRejectedAt < 15000) return
         val prefs = OverlaySettings.preferences(this)
         val turn = if (prefs.getBoolean("black_to_move", true)) Side.BLACK else Side.WHITE
         val state = try {
@@ -174,6 +196,8 @@ class ReviewCaptureService : Service() {
             ReviewStateTracker.resolve(requireNotNull(lastState), state.board) else null
         val position = inferred ?: state.sfen?.let { Sfen.parse(it) }
         if (position == null) {
+            lastRejectedSignature = hash
+            lastRejectedAt = SystemClock.elapsedRealtime()
             startService(Intent(this, OverlayService::class.java).apply {
                 action = OverlayService.ACTION_CLEAR
             })
@@ -194,10 +218,13 @@ class ReviewCaptureService : Service() {
             }
             startService(updated)
             lastSfen = sfen
+            lastBoardSignature = hash
             lastState = position
             prefs.edit().putString("last_auto_sfen", sfen).apply()
             saveStatus("認識・探索成功: " + values.joinToString { it.label })
         } catch (error: Exception) {
+            lastRejectedSignature = hash
+            lastRejectedAt = SystemClock.elapsedRealtime()
             startService(Intent(this, OverlayService::class.java).apply {
                 action = OverlayService.ACTION_CLEAR
             })
