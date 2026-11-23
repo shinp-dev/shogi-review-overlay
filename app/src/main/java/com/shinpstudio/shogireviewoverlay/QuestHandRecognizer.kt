@@ -276,6 +276,58 @@ internal class QuestHandRecognizer(iconText: String, digitText: String) {
         return raw.toIntOrNull()?.takeIf { it in 2..18 }
     }
 
+    /**
+     * A known board tells us how many pieces of each kind are off-board.
+     * An icon always proves *which owner* holds that kind, even if an unusual
+     * red digit could not be classified. Recover at most one unknown count per
+     * kind from its remaining inventory. Two unreadable counts for the same
+     * type are ambiguous and must never be guessed.
+     *
+     * A positively recognized digit must still agree with the inventory.
+     */
+    internal fun reconcileCounts(
+        board: List<Piece?>,
+        observed: Map<Side, Map<PieceType, Int?>>
+    ): Map<Side, Map<PieceType, Int>>? {
+        if (board.size != 81) return null
+        val totals = mapOf(
+            PieceType.PAWN to 18, PieceType.LANCE to 4,
+            PieceType.KNIGHT to 4, PieceType.SILVER to 4,
+            PieceType.GOLD to 4, PieceType.BISHOP to 2,
+            PieceType.ROOK to 2, PieceType.KING to 2
+        )
+        val result = mutableMapOf(
+            Side.BLACK to mutableMapOf<PieceType, Int>(),
+            Side.WHITE to mutableMapOf<PieceType, Int>()
+        )
+        for ((type, total) in totals) {
+            val missing = total - board.count { it?.type == type }
+            if (missing < 0) return null
+            val owners = Side.entries.filter { observed[it]?.containsKey(type) == true }
+            if (type == PieceType.KING && owners.isNotEmpty()) return null
+            val known = owners.mapNotNull { side ->
+                observed.getValue(side)[type]?.let { side to it }
+            }
+            if (known.any { (_, amount) -> amount !in 1..18 }) return null
+            val knownTotal = known.sumOf { it.second }
+            val unknown = owners.filter { observed.getValue(it)[type] == null }
+            if (unknown.size > 1 || knownTotal > missing) return null
+            if (unknown.isEmpty() && knownTotal != missing) return null
+            for ((side, number) in known) result.getValue(side)[type] = number
+            if (unknown.size == 1) {
+                val remainder = missing - knownTotal
+                if (remainder !in 1..18) return null
+                result.getValue(unknown[0])[type] = remainder
+            }
+        }
+        val finalized = result.mapValues { it.value.toMap() }
+        return finalized.takeIf {
+            ReviewStateTracker.inventoryIsValid(
+                ShogiPosition(board, Side.BLACK, it, 1)
+            )
+        }
+    }
+
     /** Returns null unless all seven standard inventories match exactly. */
     fun recognize(
         pixels: IntArray, width: Int, height: Int,
@@ -306,13 +358,13 @@ internal class QuestHandRecognizer(iconText: String, digitText: String) {
                 // out-of-order result is far more likely a template mismatch.
                 if (index <= previousIndex) return null
                 previousIndex = index
-                val number = count(pixels, width, height, icon, side, cellW, cellH)
-                    ?: return null
-                result.getValue(side)[type] = number
+                // A digit that cannot be read remains unknown. Reconcile it
+                // only when the board and other holding icons uniquely imply
+                // the count. Never assign a default "one" to visible digits.
+                observed.getValue(side)[type] =
+                    count(pixels, width, height, icon, side, cellW, cellH)
             }
         }
-        val immutable = result.mapValues { it.value.toMap() }
-        val position = ShogiPosition(board, Side.BLACK, immutable, 1)
-        return immutable.takeIf { ReviewStateTracker.inventoryIsValid(position) }
+        return reconcileCounts(board, observed.mapValues { it.value.toMap() })
     }
 }
