@@ -20,6 +20,8 @@ class OverlayService : Service() {
         const val ACTION_REFRESH = "overlay.REFRESH"
         const val ACTION_CALIBRATE = "overlay.CALIBRATE"
         const val ACTION_STOP = "overlay.STOP"
+        const val ACTION_HIDE = "overlay.HIDE"
+        const val ACTION_RESUME = "overlay.RESUME"
         private const val NOTIFICATION_ID = 310
         private const val CHANNEL_ID = "shogi_review_overlay"
     }
@@ -64,6 +66,8 @@ class OverlayService : Service() {
         startForeground(NOTIFICATION_ID, notification)
 
         when (intent?.action) {
+            ACTION_HIDE -> overlayView?.visibility = View.INVISIBLE
+            ACTION_RESUME -> overlayView?.visibility = View.VISIBLE
             ACTION_UPDATE -> {
                 val usi = intent.getStringArrayListExtra("moves").orEmpty()
                 val labels = intent.getStringArrayListExtra("labels").orEmpty()
