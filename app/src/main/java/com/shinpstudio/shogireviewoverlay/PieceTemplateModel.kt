@@ -13,7 +13,7 @@ import kotlin.math.roundToInt
  * Templates are from cropped piece-only screenshot cells. No personal/user
  * image content or full screenshots are embedded.
  */
-internal class PieceTemplateModel(private val templates: Map<Char, Signature>) {
+internal class PieceTemplateModel(private val templates: Map<Char, List<Signature>>) {
     data class Signature(
         val pixels: LongArray,
         val axes: IntArray,
@@ -32,24 +32,45 @@ internal class PieceTemplateModel(private val templates: Map<Char, Signature>) {
         private const val MIN_INK = 70
         private const val MIN_SCORE = 0.74
         private const val MIN_MARGIN = 0.075
+        private const val BASE_CODES = "PLNSGBRKplnsgbrk"
+        // One-character internal aliases for promoted SFEN pieces:
+        // T/U/V/W/X/Y = +P/+L/+N/+S/+B/+R, lowercase for gote.
+        private const val PROMOTED_CODES = "TUVWXYtuvwxy"
+
+        fun pieceForCode(code: Char): Piece {
+            val promotedType = when (code.uppercaseChar()) {
+                'T' -> PieceType.PAWN
+                'U' -> PieceType.LANCE
+                'V' -> PieceType.KNIGHT
+                'W' -> PieceType.SILVER
+                'X' -> PieceType.BISHOP
+                'Y' -> PieceType.ROOK
+                else -> null
+            }
+            return Piece(
+                promotedType ?: PieceType.fromSfen(code),
+                if (code.isUpperCase()) Side.BLACK else Side.WHITE,
+                promoted = promotedType != null
+            )
+        }
 
         fun create(templates: String): PieceTemplateModel {
-            val map = mutableMapOf<Char, Signature>()
+            val map = mutableMapOf<Char, MutableList<Signature>>()
             for (line in templates.lineSequence()) {
                 val trimmed = line.trim()
                 if (trimmed.isEmpty() || trimmed.startsWith("#")) continue
                 val sep = trimmed.indexOf(':')
                 require(sep == 1) { "Invalid template row" }
                 val key = trimmed[0]
-                require(key in "PLNSGBRKplnsgbrk") { "Invalid piece code" }
+                require(key in BASE_CODES || key in PROMOTED_CODES) { "Invalid piece code" }
                 val bytes = Base64.getDecoder().decode(trimmed.substring(sep + 1))
                 require(bytes.size == 128) { "Invalid 32x32 mask for $key" }
                 val dark = BooleanArray(1024) { i ->
                     ((bytes[i ushr 3].toInt() and 0xFF) and (1 shl (7 - (i and 7)))) != 0
                 }
-                map[key] = fromMask(dark)
+                map.getOrPut(key) { mutableListOf() }.add(fromMask(dark))
             }
-            require(map.size == 16) { "Need all 16 unpromoted side-specific pieces" }
+            require(BASE_CODES.all { it in map }) { "Need all 16 unpromoted side-specific pieces" }
             return PieceTemplateModel(map)
         }
 
@@ -134,14 +155,19 @@ internal class PieceTemplateModel(private val templates: Map<Char, Signature>) {
 
     fun match(signature: Signature): Result {
         if (signature.ink < MIN_INK) return Result(null, 0.0, 0.0, false)
-        // Pass 1: cheap one-dimensional dark-pixel profiles for all piece types.
-        val ranked = templates.entries.map { (code, template) ->
-            code to axisScore(signature, template)
+        // Rank distinct piece codes rather than individual samples. Otherwise
+        // repeated templates of one common piece could crowd out its rivals and
+        // produce artificially inflated confidence margins.
+        val ranked = templates.entries.map { (code, samples) ->
+            code to samples.maxOf { axisScore(signature, it) }
         }.sortedByDescending { it.second }
-        // Pass 2: distinguish visually similar glyphs via the 32x32 pixel layout.
-        val scores = ranked.take(6).map { (code, profile) ->
-            val spatial = fullScore(signature, templates.getValue(code))
-            code to (0.55 * profile + 0.45 * spatial)
+        // Score each of the best six piece *types* against every reference of
+        // that type, retaining the best combined geometric / pixel match.
+        val scores = ranked.take(6).map { (code, _) ->
+            code to templates.getValue(code).maxOf { reference ->
+                0.55 * axisScore(signature, reference) +
+                    0.45 * fullScore(signature, reference)
+            }
         }.sortedByDescending { it.second }
         val best = scores[0]
         val runnerUp = scores[1]
