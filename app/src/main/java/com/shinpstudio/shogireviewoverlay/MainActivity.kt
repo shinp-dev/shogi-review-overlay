@@ -58,7 +58,7 @@ class MainActivity : Activity() {
 
         content.addView(text("将棋レビュー・オーバーレイ", 23f))
         content.addView(text("対局後の振り返り専用です。対局中には使用しないでください。", 14f))
-        content.addView(text("駒認識は画像OCR、探索はやねうら王Material版です。認識が不確実なときはSFEN手入力で補正できます。", 13f))
+        content.addView(text("駒認識は白黒画像比較（上下左右8%を除外）、探索はやねうら王Material版です。不確実な場合はSFENを手入力できます。", 13f))
 
         button("① ほかのアプリの上に表示を許可") {
             val intent = Intent(
