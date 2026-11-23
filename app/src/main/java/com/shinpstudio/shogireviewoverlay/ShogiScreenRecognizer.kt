@@ -45,6 +45,13 @@ class ShogiScreenRecognizer(private val context: Context) : AutoCloseable {
         }
     )
 
+    private val questHands: QuestHandRecognizer = QuestHandRecognizer(
+        context.assets.open("shogi_quest_hand_icons_v1.txt")
+            .bufferedReader().use { it.readText() },
+        context.assets.open("shogi_quest_hand_digits_v1.txt")
+            .bufferedReader().use { it.readText() }
+    )
+
     fun recognize(frame: Bitmap, geometry: BoardRect, turn: Side): BoardRecognition {
         val r = geometry.pixels(frame.width, frame.height)
         if (r.left < 0 || r.top < 0 || r.right > frame.width || r.bottom > frame.height ||
@@ -72,6 +79,23 @@ class ShogiScreenRecognizer(private val context: Context) : AutoCloseable {
                 "（補正: " + corrected.dx + "," + corrected.dy + "px）",
             occupied
         )
+        // A Quest review can start at any move if both holding trays are
+        // visible and their red counts, together with the board, pass
+        // the standard 40-piece inventory. Unknown numbers fail closed.
+        if (OverlaySettings.target(context) == ReviewTarget.SHOGI_QUEST) {
+            val hands = questHands.recognize(
+                pixels, frame.width, frame.height,
+                r.left + corrected.dx, r.top + corrected.dy, r.width(), r.height(), board
+            )
+            if (hands != null) {
+                val position = ShogiPosition(board, turn, hands, 1)
+                return BoardRecognition(
+                    ReviewStateTracker.format(position),
+                    "盤上${occupied}枚＋持ち駒${40 - occupied}枚を確認（直接SFEN生成、手番は設定値）",
+                    occupied, board, corrected.dx, corrected.dy
+                )
+            }
+        }
         if (occupied != 40) return BoardRecognition(
             null,
             "盤上" + occupied + "枚を認識。持ち駒は直前局面から復元します" +
