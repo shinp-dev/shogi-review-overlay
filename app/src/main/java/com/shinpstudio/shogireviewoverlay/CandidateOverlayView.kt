@@ -184,12 +184,26 @@ class CandidateOverlayView(context: Context) : View(context) {
         canvas.drawText(text, left + dp(12f), top + dp(22f), paint)
     }
 
+    private fun drawBoardFrame(canvas: Canvas, board: RectF) {
+        // Match the green frame used in board calibration, including when no
+        // engine candidates are available. Only the temporary capture-hide
+        // and explicit overlay stop actions may hide this frame.
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = dp(2.2f)
+        paint.color = 0xFF40E080.toInt()
+        canvas.drawRect(board, paint)
+        paint.style = Paint.Style.FILL
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
-        if (candidates.isEmpty() || width <= 0 || height <= 0) return
+        if (width <= 0 || height <= 0) return
         val board = OverlaySettings.displayBoard(context, width, height)
-        drawHeader(canvas, board)
-        candidates.forEachIndexed { i, entry -> drawCandidate(canvas, board, i, entry) }
-        drawPanel(canvas, board)
+        if (candidates.isNotEmpty()) {
+            drawHeader(canvas, board)
+            candidates.forEachIndexed { i, entry -> drawCandidate(canvas, board, i, entry) }
+            drawPanel(canvas, board)
+        }
+        drawBoardFrame(canvas, board)
     }
 }
