@@ -179,7 +179,9 @@ internal class QuestHandRecognizer(iconText: String, digitText: String) {
         }
         if (right - left < .45f * slot.w ||
             bottom - top < .40f * slot.h) return null
-        return Icon(left, right + 1, top, bottom + 1)
+        // Keep the existing glyph template crop convention: x-end exclusive,
+        // y-end inclusive. Changing it by one pixel shifts 32x32 masks.
+        return Icon(left, right + 1, top, bottom)
     }
 
     internal fun occupiedSlotIndices(
