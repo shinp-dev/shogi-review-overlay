@@ -209,6 +209,9 @@ class ReviewCaptureService : Service() {
         saveStatus(state.message)
         val inferred = if (state.board != null && lastState != null)
             ReviewStateTracker.resolve(requireNotNull(lastState), state.board) else null
+        // Prefer unique one-step tracking (it preserves the true next mover
+        // and move number). If replay jumped several moves, Quest's verified
+        // holding trays can re-establish a complete position from that frame.
         val position = inferred ?: state.sfen?.let { Sfen.parse(it) }
         if (position == null) {
             lastRejectedSignature = hash
