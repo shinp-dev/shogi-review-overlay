@@ -30,6 +30,9 @@ internal class QuestHandRecognizer(iconText: String, digitText: String) {
 
     private val icons = load(iconText, 32, 32)
     private val digits = load(digitText, 16, 24)
+    // Never classify synthetic 0/1 as a verified number; unreadable badges
+    // can still be recovered when the 40-piece inventory is unambiguous.
+    private val verifiedDigits = digits.filterKeys { it in '2'..'9' }
     private val order = listOf(
         PieceType.PAWN, PieceType.LANCE, PieceType.KNIGHT, PieceType.SILVER,
         PieceType.GOLD, PieceType.BISHOP, PieceType.ROOK
@@ -234,15 +237,22 @@ internal class QuestHandRecognizer(iconText: String, digitText: String) {
         val x1 = right.roundToInt().coerceIn(0, w)
         val y0 = top.roundToInt().coerceIn(0, h)
         val y1 = bottom.roundToInt().coerceIn(0, h)
-        if (x1 <= x0 || y1 <= y0) return null
+        return readRedBadgeInRegion(pixels, w, h, x0, x1, y0, y1)
+    }
 
+    /** The same color/shape parsing used for the real screenshot test fixtures. */
+    internal fun readRedBadgeInRegion(
+        pixels: IntArray, w: Int, h: Int, x0: Int, x1: Int, y0: Int, y1: Int
+    ): Int? {
+        if (x0 < 0 || y0 < 0 || x1 > w || y1 > h ||
+            x1 <= x0 || y1 <= y0 || pixels.size < w * h) return null
         val redPerColumn = IntArray(x1 - x0)
         for (y in y0 until y1) for (x in x0 until x1)
             if (isRed(pixels[y * w + x])) redPerColumn[x - x0]++
 
         val detected = StringBuilder()
         var cursor = 0
-        var redTotal = redPerColumn.sum()
+        val redTotal = redPerColumn.sum()
         while (cursor < redPerColumn.size) {
             if (redPerColumn[cursor] == 0) { cursor++; continue }
             val start = cursor
@@ -268,7 +278,7 @@ internal class QuestHandRecognizer(iconText: String, digitText: String) {
                 val sy = minY + min(srcH - 1, ((y + 0.5f) * srcH / 24).toInt())
                 bits[y * 16 + x] = isRed(pixels[sy * w + sx])
             }
-            val guessed = match(makeGlyph(16, 24, bits), digits) ?: return null
+            val guessed = match(makeGlyph(16, 24, bits), verifiedDigits) ?: return null
             if (guessed.score < .78 || guessed.margin < .075) return null
             detected.append(guessed.code)
         }
