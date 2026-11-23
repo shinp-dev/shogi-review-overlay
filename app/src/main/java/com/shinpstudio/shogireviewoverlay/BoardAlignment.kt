@@ -113,22 +113,33 @@ internal object BoardAlignment {
         fun inside(x: Int, y: Int): Boolean =
             rect.left + x >= 0f && rect.top + y >= 0f &&
                 rect.right + x <= width && rect.bottom + y <= height
+        return searchOffsets(maxShift, ::inside) { dx, dy ->
+            evaluate(pixels, width, height, rect, inset, classifier, dx, dy)
+        }
+    }
+
+    /** Pure search, testable without Android graphics. */
+    internal fun searchOffsets(
+        maxShift: Int,
+        inside: (Int, Int) -> Boolean,
+        evaluate: (Int, Int) -> Scan
+    ): Scan {
+        require(maxShift in 1..LIMIT_PX)
         var winner: Scan? = null
         val visited = HashSet<Pair<Int, Int>>()
         fun tryAt(dx: Int, dy: Int) {
             if (dx !in -maxShift..maxShift || dy !in -maxShift..maxShift ||
                 !inside(dx, dy) || !visited.add(dx to dy)) return
-            val scan = evaluate(pixels, width, height, rect, inset, classifier, dx, dy)
+            val scan = evaluate(dx, dy)
             if (winner == null || better(scan, requireNotNull(winner))) winner = scan
         }
-        // Start at the manual grid center; then a coarse sweep and local refinement.
         tryAt(0, 0)
         for (dy in -maxShift..maxShift step 2)
-            for (dx in -maxShift..maxShift step 2)
-                tryAt(dx, dy)
+            for (dx in -maxShift..maxShift step 2) tryAt(dx, dy)
         val coarse = requireNotNull(winner)
         for (dy in coarse.dy - 1..coarse.dy + 1)
             for (dx in coarse.dx - 1..coarse.dx + 1) tryAt(dx, dy)
         return requireNotNull(winner)
+
     }
 }
