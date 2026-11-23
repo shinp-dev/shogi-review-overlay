@@ -338,9 +338,9 @@ internal class QuestHandRecognizer(iconText: String, digitText: String) {
     ): Map<Side, Map<PieceType, Int>>? {
         if (pixels.size < width * height || board.size != 81 || width <= 0 || height <= 0)
             return null
-        val result = mutableMapOf(
-            Side.BLACK to mutableMapOf<PieceType, Int>(),
-            Side.WHITE to mutableMapOf<PieceType, Int>()
+        val observed = mutableMapOf(
+            Side.BLACK to mutableMapOf<PieceType, Int?>(),
+            Side.WHITE to mutableMapOf<PieceType, Int?>()
         )
         val cellW = boardWidth / 9f
         val cellH = boardHeight / 9f
