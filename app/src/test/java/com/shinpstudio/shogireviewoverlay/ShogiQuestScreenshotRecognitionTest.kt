@@ -32,8 +32,14 @@ class ShogiQuestScreenshotRecognitionTest {
             )
         )).use { it.readBytes() }
         assertEquals(81 * 128, bytes.size)
+        // Regression must use the *same combined model* shipped in the app,
+        // not the old basic-only model.
         val classifier = PieceTemplateModel.create(
-            File("src/main/assets/shogi_quest_templates_v1.txt").readText()
+            listOf(
+                "shogi_quest_templates_v1.txt",
+                "shogi_quest_variants_v1.txt",
+                "shogi_quest_promoted_v1.txt"
+            ).joinToString("\n") { File("src/main/assets/${it}").readText() }
         )
         var matched = 0
         var empty = 0
