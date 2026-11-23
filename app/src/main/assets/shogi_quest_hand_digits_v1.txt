@@ -1,0 +1,12 @@
+# Red multiplicity numerals (16x24 bits, base64 of 48 packed bytes).
+# 2, 3, 6 sampled from screenshot. Others are synthetic references requiring verification.
+3:A8A/+H/+f/54H/AfAA8ADwAeAD4B/AfwB/gAPgAfAA8ADwAP8A/wH35+f/4//Afg
+6:APAH8A/wD+A+AH4AfAB4AHDg9/z//v/++B/wH/AP8A/wD/AP8A94H35+P/4f/A/w
+2:D+A/+H/8fP74PvA+8B4AHgA+AD4APAB4APgB8APgA8AHgB8AHwA+AH0A////////
+0:A8Af+B/4P/w+fHw+fD58Hnwf+B/4H/gf+B/4H/gffB98Hnw+fD4+fD/8H/gf+APA
+1:D+D/4P/g/+Dz4APgA+AD4APgA+AD4APgA+AD4APgA+AD4APgA+AD4H//f/9//3//
+4:APgB+AH4A/gD+A94D3gPeB54Hng8eDx4cHhweOB4//////////8AeAB4AHgAeAB4
+5:f/5//n/+f/5//ngAeAB4AH/Af/x//H/+cP4APwA/AD8APwA/gD/w/v/+//z/+B/A
+7://////////7//gB+AH4AfAD8APwA+ADwAfAB8APgA+AH4AfAB8APgA+AD4AfAD8A
+8:B+A//D/+f/5+fnwfeB98Hn5+P/4P8B/4f/5+fvgf+B/4H/gf+B9+f3/+P/4//Afg
+9:A8Af+D/4f/x+fnw+eB54H3gffD98P35/P/8//x/fB58AHgA+AD4w/D/8P/g/8A+A
