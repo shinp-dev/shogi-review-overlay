@@ -109,48 +109,103 @@ internal class WarsHandRecognizer(iconsText: String, digitsText: String) {
         return mask(bits, 32, 32)
     }
 
-    // The icon size is scaled from the calibrated board, not screen pixels.
-    // Search covers all plausible horizontal slots; no canonical hand ordering.
+    // Wars uses a seven-place holding tray. The upper tray is right-aligned
+    // (its first place is next to the controls), the lower tray left-aligned.
+    // The position of an occupied piece changes when the number of distinct
+    // held types changes, but the *possible places* form a regular array.
+    // Check only these 14 places for the orange piece silhouette. Avoid the
+    // old full-width sliding-template search and background false positives.
+    private fun slot(boardLeft: Float, boardTop: Float, boardW: Float,
+                     boardH: Float, side: Side, index: Int): Rect {
+        val cellW = boardW / 9f
+        val cellH = boardH / 9f
+        val startX = if (side == Side.WHITE) boardLeft + .62f * boardW
+                     else boardLeft + .01f * boardW
+        val x = startX + (if (side == Side.WHITE) -index else index) * cellW
+        val y = if (side == Side.WHITE) boardTop - 1.32f * cellH
+                else boardTop + boardH + .30f * cellH
+        return Rect(
+            x.roundToInt(), y.roundToInt(),
+            (.80f * cellW).roundToInt(), (.94f * cellH).roundToInt()
+        )
+    }
+
+    private fun orange(color: Int): Boolean {
+        val r = color ushr 16 and 255
+        val g = color ushr 8 and 255
+        val b = color and 255
+        return r > 160 && g > 85 && b < 160 &&
+            r > g + 20 && g > b + 15
+    }
+
+    /**
+     * The orange-tan piece body must fill at least half of the central slot.
+     * Extract a local orange bounding box and use it only to compensate for
+     * small (<=4 px) differences in scaling or screenshot alignment.
+     */
+    private fun orangeRect(pixels: IntArray, width: Int, height: Int,
+                           expected: Rect): Rect? {
+        if (expected.x < 0 || expected.y < 0 ||
+            expected.x + expected.w >= width ||
+            expected.y + expected.h >= height ||
+            expected.w < 30 || expected.h < 30) return null
+        val x0 = expected.x + (.13f * expected.w).roundToInt()
+        val x1 = expected.x + (.80f * expected.w).roundToInt()
+        val y0 = expected.y + (.14f * expected.h).roundToInt()
+        val y1 = expected.y + (.78f * expected.h).roundToInt()
+        val area = (x1 - x0) * (y1 - y0)
+        var occupied = 0
+        var minX = x1
+        var minY = y1
+        var maxX = x0 - 1
+        var maxY = y0 - 1
+        for (y in y0 until y1) for (x in x0 until x1) {
+            if (!orange(pixels[y * width + x])) continue
+            occupied++
+            if (x < minX) minX = x
+            if (x > maxX) maxX = x
+            if (y < minY) minY = y
+            if (y > maxY) maxY = y
+        }
+        if (occupied < .48f * area ||
+            maxX - minX < .40f * (x1 - x0) ||
+            maxY - minY < .40f * (y1 - y0)) return null
+        val x = (minX - (.13f * expected.w).roundToInt())
+            .coerceIn(expected.x - 4, expected.x + 4)
+        val y = (minY - (.14f * expected.h).roundToInt())
+            .coerceIn(expected.y - 4, expected.y + 4)
+        return Rect(x, y, expected.w, expected.h)
+    }
+
+    /** Testable set of occupied slot indices, independent of glyph recognition. */
+    internal fun occupiedSlotIndices(
+        pixels: IntArray, width: Int, height: Int,
+        boardLeft: Float, boardTop: Float, boardWidth: Float, boardHeight: Float,
+        side: Side
+    ): List<Int> = (0..6).filter { i ->
+        orangeRect(pixels, width, height,
+            slot(boardLeft, boardTop, boardWidth, boardHeight, side, i)) != null
+    }
+
     private fun locate(
         pixels: IntArray, width: Int, height: Int, left: Float, top: Float,
         boardW: Float, boardH: Float, side: Side
     ): List<Candidate>? {
-        val cellW = boardW / 9f
-        val cellH = boardH / 9f
-        val xMin = (left + (if (side == Side.WHITE) .20f else .0f) * boardW)
-            .roundToInt().coerceAtLeast(0)
-        val xMax = (left + .73f * boardW).roundToInt().coerceAtMost(width - 1)
-        val baseY = if (side == Side.WHITE) top else top + boardH
-        val yMin = (baseY + (if (side == Side.WHITE) -1.48f else .22f) * cellH)
-            .roundToInt().coerceAtLeast(0)
-        val yMax = (baseY + (if (side == Side.WHITE) -1.20f else .56f) * cellH)
-            .roundToInt().coerceAtMost(height - 1)
-        val dx = max(2, (.05f * cellW).roundToInt())
-        val dy = max(2, (.05f * cellH).roundToInt())
-        val widths = listOf(.75f, .80f, .86f).map { (it * cellW).roundToInt() }
-        val heights = listOf(.87f, .945f).map { (it * cellH).roundToInt() }
-        val candidates = ArrayList<Candidate>()
-        for (y in yMin..yMax step dy) for (x in xMin..xMax step dx) {
-            for (w in widths) for (h in heights) {
-                if (x + w > width || y + h > height) continue
-                val rect = Rect(x, y, w, h)
-                val signature = sample(pixels, width, height, rect)
-                if (signature.ink < 90 || signature.ink > 600) continue
-                val found = match(signature, icons) {
-                    if (side == Side.WHITE) it.isLowerCase() else it.isUpperCase()
-                } ?: continue
-                if (found.score >= .84 && found.margin >= .075)
-                    candidates += Candidate(found.code, rect, found.score)
-            }
+        val selected = ArrayList<Candidate>()
+        for (index in 0..6) {
+            val rect = orangeRect(pixels, width, height,
+                slot(left, top, boardW, boardH, side, index)) ?: continue
+            val signature = sample(pixels, width, height, rect)
+            val found = match(signature, icons) {
+                if (side == Side.WHITE) it.isLowerCase() else it.isUpperCase()
+            } ?: return null
+            // An occupied slot must have a verified piece glyph. Never treat a
+            // mismatched orange panel as an empty position.
+            if (signature.ink < 90 || signature.ink > 600 ||
+                found.score < .84 || found.margin < .075) return null
+            selected += Candidate(found.code, rect, found.score)
         }
-        val chosen = ArrayList<Candidate>()
-        for (item in candidates.sortedByDescending { it.score }) {
-            if (chosen.any { kotlin.math.abs(it.rect.x - item.rect.x) < .63f * cellW })
-                continue
-            chosen += item
-            if (chosen.size > 7) return null
-        }
-        return chosen.sortedBy { it.rect.x }
+        return selected.sortedBy { it.rect.x }
     }
 
     private fun badgeCount(
