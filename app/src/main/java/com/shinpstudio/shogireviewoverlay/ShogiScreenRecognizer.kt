@@ -23,11 +23,10 @@ data class BoardRecognition(
  * previous valid position exists, ReviewStateTracker can reconstruct one legal
  * move (including drops and captures) from this detected board.
  */
-class ShogiScreenRecognizer(context: Context) : AutoCloseable {
+class ShogiScreenRecognizer(private val context: Context) : AutoCloseable {
     private val pieces: PieceTemplateModel = PieceTemplateModel.create(
         context.assets.open("shogi_templates_v1.txt").bufferedReader().use { it.readText() }
     )
-    private val inset = PieceTemplateModel.INSET
 
     /**
      * Conservative UI guard, not a general live/replay classifier:
@@ -62,6 +61,7 @@ class ShogiScreenRecognizer(context: Context) : AutoCloseable {
 
         // Read the frame once. All 81*1024 binary pixel samples use this array;
         // no per-square Bitmap allocation, OCR call or external dependency.
+        val inset = OverlaySettings.preferences(context).getInt("crop_margin_pct", 8).coerceIn(6, 12) / 100f
         val pixels = IntArray(frame.width * frame.height)
         frame.getPixels(pixels, 0, frame.width, 0, 0, frame.width, frame.height)
 
