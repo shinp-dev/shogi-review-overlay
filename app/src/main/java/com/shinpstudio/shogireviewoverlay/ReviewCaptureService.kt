@@ -36,8 +36,6 @@ class ReviewCaptureService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private val work = Executors.newSingleThreadExecutor()
     private val busy = AtomicBoolean(false)
-    private var captureReady = false
-    private var lastRequest = 0L
     private var lastSfen = ""
     private var lastState: ShogiPosition? = null
     private lateinit var recognizer: ShogiScreenRecognizer
@@ -89,33 +87,12 @@ class ReviewCaptureService : Service() {
             }, main)
 
             val metrics = resources.displayMetrics
-            val w = metrics.widthPixels
-            val h = metrics.heightPixels
+            val bounds = if (Build.VERSION.SDK_INT >= 30) {
+                (getSystemService(WINDOW_SERVICE) as WindowManager).maximumWindowMetrics.bounds
+            } else null
+            val w = bounds?.width() ?: metrics.widthPixels
+            val h = bounds?.height() ?: metrics.heightPixels
             reader = ImageReader.newInstance(w, h, PixelFormat.RGBA_8888, 2)
-            reader.setOnImageAvailableListener({ source ->
-                val frame = source.acquireLatestImage() ?: return@setOnImageAvailableListener
-                try {
-                    if (!captureReady || !busy.compareAndSet(false, true)) return@setOnImageAvailableListener
-                    captureReady = false
-                    val plane = frame.planes[0]
-                    val stride = plane.rowStride / plane.pixelStride
-                    val raw = Bitmap.createBitmap(stride, h, Bitmap.Config.ARGB_8888)
-                    raw.copyPixelsFromBuffer(plane.buffer)
-                    val bitmap = Bitmap.createBitmap(raw, 0, 0, w, h)
-                    raw.recycle()
-                    startService(Intent(this, OverlayService::class.java).apply {
-                        action = OverlayService.ACTION_RESUME
-                    })
-                    work.execute {
-                        try { scan(bitmap) } finally {
-                            bitmap.recycle()
-                            busy.set(false)
-                        }
-                    }
-                } finally {
-                    frame.close()
-                }
-            }, main)
             virtualDisplay = token.createVirtualDisplay(
                 "ShogiReviewCapture", w, h, metrics.densityDpi,
                 DisplayManager.VIRTUAL_DISPLAY_FLAG_AUTO_MIRROR,
@@ -129,20 +106,59 @@ class ReviewCaptureService : Service() {
         return START_NOT_STICKY
     }
 
+    private fun restoreOverlay() {
+        try {
+            startService(Intent(this, OverlayService::class.java).apply {
+                action = OverlayService.ACTION_RESUME
+            })
+        } catch (_: Exception) {}
+    }
+
+    private fun grabFrame() {
+        val image = try { reader.acquireLatestImage() } catch (_: Exception) { null }
+        if (image == null) {
+            restoreOverlay()
+            busy.set(false)
+            return
+        }
+        try {
+            val p = image.planes[0]
+            val rowPixels = p.rowStride / p.pixelStride
+            val raw = Bitmap.createBitmap(rowPixels, image.height, Bitmap.Config.ARGB_8888)
+            raw.copyPixelsFromBuffer(p.buffer)
+            val bitmap = Bitmap.createBitmap(raw, 0, 0, image.width, image.height)
+            raw.recycle()
+            restoreOverlay()
+            work.execute {
+                try { scan(bitmap) } finally {
+                    bitmap.recycle()
+                    busy.set(false)
+                }
+            }
+        } catch (exception: Exception) {
+            restoreOverlay()
+            busy.set(false)
+            saveStatus("画面の読み取りに失敗: " + exception.message)
+        } finally {
+            image.close()
+        }
+    }
+
     private val nextCapture = object : Runnable {
         override fun run() {
             if (projection == null) return
-            if (!busy.get()) {
-                captureReady = false
+            if (busy.compareAndSet(false, true) && ::reader.isInitialized) {
+                // Drop the previous frame before hiding overlay; the next frame
+                // must be taken *after* the overlay has disappeared.
+                try { reader.acquireLatestImage()?.close() } catch (_: Exception) {}
                 startService(Intent(this@ReviewCaptureService, OverlayService::class.java).apply {
                     action = OverlayService.ACTION_HIDE
                 })
-                main.postDelayed({ captureReady = true }, 300)
+                main.postDelayed({ grabFrame() }, 350)
             }
             main.postDelayed(this, 4500)
         }
     }
-
     private fun scheduleCapture() { main.postDelayed(nextCapture, 1800) }
 
     private fun scan(bitmap: Bitmap) {
@@ -156,7 +172,13 @@ class ReviewCaptureService : Service() {
         saveStatus(state.message)
         val inferred = if (state.board != null && lastState != null)
             ReviewStateTracker.resolve(requireNotNull(lastState), state.board) else null
-        val position = inferred ?: state.sfen?.let { Sfen.parse(it) } ?: return
+        val position = inferred ?: state.sfen?.let { Sfen.parse(it) }
+        if (position == null) {
+            startService(Intent(this, OverlayService::class.java).apply {
+                action = OverlayService.ACTION_CLEAR
+            })
+            return
+        }
         val sfen = ReviewStateTracker.format(position)
         if (sfen == lastSfen) return
         try {
@@ -176,6 +198,9 @@ class ReviewCaptureService : Service() {
             prefs.edit().putString("last_auto_sfen", sfen).apply()
             saveStatus("認識・探索成功: " + values.joinToString { it.label })
         } catch (error: Exception) {
+            startService(Intent(this, OverlayService::class.java).apply {
+                action = OverlayService.ACTION_CLEAR
+            })
             saveStatus("エンジン解析失敗: " + error.message)
         }
     }
@@ -186,15 +211,12 @@ class ReviewCaptureService : Service() {
 
     override fun onDestroy() {
         main.removeCallbacks(nextCapture)
-        captureReady = false
         virtualDisplay?.release()
         projection?.stop()
         if (::reader.isInitialized) reader.close()
         if (::recognizer.isInitialized) recognizer.close()
         work.shutdownNow()
-        startService(Intent(this, OverlayService::class.java).apply {
-            action = OverlayService.ACTION_RESUME
-        })
+        restoreOverlay()
         super.onDestroy()
     }
 }
