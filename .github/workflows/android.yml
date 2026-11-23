@@ -54,6 +54,20 @@ jobs:
           cp "$ENGINE" ../../app/src/main/jniLibs/arm64-v8a/libshogi_engine.so
       - name: Unit tests
         run: gradle --no-daemon :app:testDebugUnitTest
+      - name: Print failed unit-test details
+        if: failure()
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          import xml.etree.ElementTree as ET
+          for path in sorted(Path("app/build/test-results/testDebugUnitTest").glob("TEST-*.xml")):
+              root = ET.parse(path).getroot()
+              for case in root.iter("testcase"):
+                  for failure in case.findall("failure"):
+                      print("FAILED:", case.attrib.get("classname"), case.attrib.get("name"))
+                      print(failure.attrib.get("message", ""))
+                      print((failure.text or "")[:2500])
+          PY
       - name: Debug APK
         run: gradle --no-daemon :app:assembleDebug
       - uses: actions/upload-artifact@v4
