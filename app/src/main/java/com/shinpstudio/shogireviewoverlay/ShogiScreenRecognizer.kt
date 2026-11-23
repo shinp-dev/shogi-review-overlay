@@ -108,11 +108,36 @@ class ShogiScreenRecognizer : AutoCloseable {
         } finally { enlarged.recycle() }
     }
 
+    /**
+     * Shogi Wars live match has a large cyan surrender (投了) button above
+     * the board. Never calculate candidate moves while it is visible.
+     */
+    private fun looksLikeActiveMatch(frame: Bitmap, board: RectF): Boolean {
+        val cellHeight = board.height() / 9f
+        val left = (board.right - board.width() * .27f).toInt().coerceIn(0, frame.width - 1)
+        val right = (board.right - board.width() * .135f).toInt().coerceIn(left + 1, frame.width)
+        val top = (board.top - 1.55f * cellHeight).toInt().coerceIn(0, frame.height - 1)
+        val bottom = (board.top - .25f * cellHeight).toInt().coerceIn(top + 1, frame.height)
+        var blue = 0
+        var total = 0
+        for (y in top until bottom step 4) for (x in left until right step 4) {
+            val color = frame.getPixel(x, y)
+            val red = Color.red(color)
+            val green = Color.green(color)
+            val b = Color.blue(color)
+            if (b > 135 && b > red + 40 && green > red + 35) blue++
+            total++
+        }
+        return total > 40 && blue.toFloat() / total > .38f
+    }
+
     fun recognize(frame: Bitmap, geometry: BoardRect, turn: Side): BoardRecognition {
         val r = geometry.pixels(frame.width, frame.height)
         if (r.left < 0 || r.top < 0 || r.right > frame.width || r.bottom > frame.height ||
             r.width() < 300 || r.height() < 300)
             return BoardRecognition(null, "盤面位置の調整が必要です", 0)
+        if (looksLikeActiveMatch(frame, r))
+            return BoardRecognition(null, "対局中の画面（投了ボタン）と判定しました。対局後の振り返りでのみ使用してください", 0)
         val cell = 112
         val normal = atlas(frame, r, false, cell)
         val rotated = atlas(frame, r, true, cell)
