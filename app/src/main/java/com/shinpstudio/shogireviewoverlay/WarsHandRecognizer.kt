@@ -220,7 +220,20 @@ internal class WarsHandRecognizer(iconsText: String, digitsText: String) {
             .roundToInt().coerceIn(0, height)
         val y1 = (rect.y + (if (side == Side.WHITE) 1.20f else .45f) * rect.h)
             .roundToInt().coerceIn(0, height)
-        if (x1 <= x0 || y1 <= y0) return null
+        return readBadgeInRegion(pixels, width, height, x0, x1, y0, y1)
+    }
+
+    /**
+     * Shared production segmentation for unit tests based on anonymized,
+     * real screenshot badge pixels. Unknown numerals are not guessed.
+     */
+    internal fun readBadgeInRegion(
+        pixels: IntArray, width: Int, height: Int,
+        x0: Int, x1: Int, y0: Int, y1: Int
+    ): Int? {
+        if (width <= 0 || height <= 0 || x0 < 0 || y0 < 0 ||
+            x1 <= x0 || y1 <= y0 || x1 > width || y1 > height ||
+            pixels.size < width * height) return null
         val regionW = x1 - x0
         val regionH = y1 - y0
         val visited = BooleanArray(regionW * regionH)
