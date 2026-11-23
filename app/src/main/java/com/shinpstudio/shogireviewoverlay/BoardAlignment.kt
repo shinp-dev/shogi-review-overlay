@@ -139,6 +139,13 @@ internal object BoardAlignment {
         val coarse = requireNotNull(winner)
         for (dy in coarse.dy - 1..coarse.dy + 1)
             for (dx in coarse.dx - 1..coarse.dx + 1) tryAt(dx, dy)
+        // If no reliable candidate emerges, use a bounded exhaustive sweep.
+        // This handles glyphs that are so sharp that every even-pixel coarse
+        // sample misses an odd-pixel alignment. At most 9*9 total offsets.
+        if (!requireNotNull(winner).reliable) {
+            for (dy in -maxShift..maxShift)
+                for (dx in -maxShift..maxShift) tryAt(dx, dy)
+        }
         return requireNotNull(winner)
 
     }
