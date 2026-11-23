@@ -43,7 +43,7 @@ class ShogiQuestTemplateTest {
         val data = Base64.getDecoder().decode(packed)
         assertEquals(128, data.size)
         val mask = BooleanArray(1024) { i ->
-            data[i / 8].toInt() and 0xFF and (1 shl (7 - (i % 8))) != 0
+            (data[i / 8].toInt() and 0xFF and (1 shl (7 - (i % 8)))) != 0
         }
         return PieceTemplateModel.fromMask(mask)
     }
