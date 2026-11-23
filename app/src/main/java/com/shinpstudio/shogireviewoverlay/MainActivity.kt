@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
+import android.media.projection.MediaProjectionManager
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -57,7 +58,7 @@ class MainActivity : Activity() {
 
         content.addView(text("将棋レビュー・オーバーレイ", 23f))
         content.addView(text("対局後の振り返り専用です。対局中には使用しないでください。", 14f))
-        content.addView(text("現在はSFEN手入力＋簡易探索による画面試作です。自動盤面認識と本格エンジンは未実装。", 13f))
+        content.addView(text("駒認識は画像OCR、探索はやねうら王Material版です。認識が不確実なときはSFEN手入力で補正できます。", 13f))
 
         button("① ほかのアプリの上に表示を許可") {
             val intent = Intent(
@@ -70,6 +71,44 @@ class MainActivity : Activity() {
             startOverlay(OverlayService.ACTION_CALIBRATE)
             Toast.makeText(this, "将棋ウォーズの振り返り画面に切り替え、枠を合わせて「完了」", Toast.LENGTH_LONG).show()
         }
+
+        button("③ 盤面を自動認識・解析（画面共有を許可）") {
+            if (!Settings.canDrawOverlays(this)) {
+                status.text = "先にオーバーレイ権限を許可してください"
+            } else {
+                val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+                startActivityForResult(manager.createScreenCaptureIntent(), 61)
+            }
+        }
+        button("自動認識を停止") {
+            stopService(Intent(this, ReviewCaptureService::class.java))
+            status.text = "画面認識を停止しました"
+        }
+        button("認識した最新SFENを入力欄に取り込む") {
+            val value = prefs.getString("last_auto_sfen", null)
+            if (value != null) sfenInput.setText(value)
+            status.text = prefs.getString("last_auto_status", "認識結果がありません")
+        }
+        content.addView(text("振り返り時の手番"))
+        switchTurn@ run {
+            val toggle = Switch(this).apply {
+                text = "先手番（OFFなら後手番）"
+                isChecked = prefs.getBoolean("black_to_move", true)
+                setOnCheckedChangeListener { _, checked ->
+                    prefs.edit().putBoolean("black_to_move", checked).apply()
+                }
+            }
+            content.addView(toggle)
+        }
+        content.addView(text("解析時間: 1手約1.2秒（400〜3000ms）"))
+        val thinkSlider = SeekBar(this).apply {
+            max = 13
+            progress = ((prefs.getInt("think_ms", 1200) - 400) / 200).coerceIn(0, 13)
+        }
+        thinkSlider.setOnSeekBarChangeListener(changeListener { value ->
+            prefs.edit().putInt("think_ms", 400 + value * 200).apply()
+        })
+        content.addView(thinkSlider)
 
         content.addView(text("③ 解析する局面（SFEN）", 18f))
         sfenInput = EditText(this).apply {
@@ -135,13 +174,33 @@ class MainActivity : Activity() {
             stopService(Intent(this, OverlayService::class.java))
             status.text = "オーバーレイを停止しました"
         }
-        status = text("未解析。初期局面から表示を試せます。", 14f)
+        status = text(prefs.getString("last_auto_status", "未解析。画面取得またはSFEN入力で開始してください") ?: "未解析", 14f)
         content.addView(status)
         setContentView(scroll)
 
         if (Build.VERSION.SDK_INT >= 33 &&
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
         ) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 7)
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != 61) return
+        if (resultCode != RESULT_OK || data == null) {
+            status.text = "画面取得の許可がキャンセルされました"
+            return
+        }
+        val intent = Intent(this, ReviewCaptureService::class.java).apply {
+            action = ReviewCaptureService.ACTION_START
+            putExtra(ReviewCaptureService.EXTRA_CODE, resultCode)
+            putExtra(ReviewCaptureService.EXTRA_DATA, data)
+        }
+        try {
+            startForegroundService(intent)
+            status.text = "認識を開始しました。将棋ウォーズの対局後振り返りへ切り替えてください"
+        } catch (e: Exception) {
+            status.text = "画面認識を開始できません: " + e.message
+        }
     }
 
     private fun changeListener(change: (Int) -> Unit): SeekBar.OnSeekBarChangeListener =
@@ -183,11 +242,11 @@ class MainActivity : Activity() {
             return
         }
         OverlaySettings.preferences(this).edit().putString("sfen", text).apply()
-        status.text = "簡易候補を探索中..."
+        status.text = "やねうら王で探索中..."
         val count = OverlaySettings.count(this)
         Thread {
             try {
-                val candidates = SimpleAnalyzer.analyze(position, count)
+                val candidates = UsiEngine(this).analyze(text, position, count, prefs.getInt("think_ms", 1200))
                 runOnUiThread {
                     if (candidates.isEmpty()) {
                         status.text = "合法手がありません。王手・終局を確認してください。"
@@ -198,7 +257,7 @@ class MainActivity : Activity() {
                         putStringArrayListExtra("labels", ArrayList(candidates.map { it.label }))
                         putExtra("scores", candidates.map { it.score }.toIntArray())
                     }
-                    status.text = "簡易参考値（本格エンジン未接続）\n" +
+                    status.text = "やねうら王Material評価値\n" +
                         candidates.mapIndexed { i, candidate ->
                             (i + 1).toString() + ". " + candidate.label +
                                 "  " + (if (candidate.score >= 0) "+" else "") + candidate.score
