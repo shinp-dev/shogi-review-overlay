@@ -215,7 +215,16 @@ class ReviewCaptureService : Service() {
             return
         }
         val sfen = ReviewStateTracker.format(position)
-        if (sfen == lastSfen) return
+        // Even with unchanged SFEN, the board can shift on screen. Keep the
+        // arrows aligned without restarting the engine on the same position.
+        if (sfen == lastSfen) {
+            OverlaySettings.saveAlignment(this, state.offsetX, state.offsetY)
+            startService(Intent(this, OverlayService::class.java).apply {
+                action = OverlayService.ACTION_REFRESH
+            })
+            lastBoardSignature = hash
+            return
+        }
         try {
             val values = UsiEngine(this).analyze(
                 sfen, position, OverlaySettings.count(this),
@@ -227,6 +236,8 @@ class ReviewCaptureService : Service() {
                 putStringArrayListExtra("labels", ArrayList(values.map { it.label }))
                 putExtra("scores", values.map { it.score }.toIntArray())
             }
+            // Only accepted, engine-validated positions may move the overlay.
+            OverlaySettings.saveAlignment(this, state.offsetX, state.offsetY)
             startService(updated)
             lastSfen = sfen
             lastBoardSignature = hash

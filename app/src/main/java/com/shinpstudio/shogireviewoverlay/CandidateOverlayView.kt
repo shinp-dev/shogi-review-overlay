@@ -187,7 +187,7 @@ class CandidateOverlayView(context: Context) : View(context) {
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         if (candidates.isEmpty() || width <= 0 || height <= 0) return
-        val board = OverlaySettings.board(context).pixels(width, height)
+        val board = OverlaySettings.displayBoard(context, width, height)
         drawHeader(canvas, board)
         candidates.forEachIndexed { i, entry -> drawCandidate(canvas, board, i, entry) }
         drawPanel(canvas, board)

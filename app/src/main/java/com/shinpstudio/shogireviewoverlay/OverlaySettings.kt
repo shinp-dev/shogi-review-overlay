@@ -40,8 +40,29 @@ object OverlaySettings {
             .putFloat("board_top", board.top)
             .putFloat("board_width", board.width)
             .putFloat("board_height", board.height)
+            .putInt("alignment_dx", 0)
+            .putInt("alignment_dy", 0)
             .apply()
     }
+    /**
+     * Keep the saved calibration untouched, so automatic correction does not
+     * accumulate across repeated screenshots.
+     */
+    fun displayBoard(context: Context, screenWidth: Int, screenHeight: Int): RectF =
+        board(context).pixels(screenWidth, screenHeight).apply {
+            offset(
+                preferences(context).getInt("alignment_dx", 0).toFloat(),
+                preferences(context).getInt("alignment_dy", 0).toFloat()
+            )
+        }
+
+    fun saveAlignment(context: Context, dx: Int, dy: Int) {
+        preferences(context).edit()
+            .putInt("alignment_dx", dx)
+            .putInt("alignment_dy", dy)
+            .apply()
+    }
+
     fun count(context: Context): Int =
         preferences(context).getInt("count", 3).coerceIn(1, 3)
     fun fontSp(context: Context): Int =
