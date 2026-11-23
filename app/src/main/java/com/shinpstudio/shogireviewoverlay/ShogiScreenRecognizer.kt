@@ -7,7 +7,7 @@ import com.google.mlkit.vision.text.japanese.JapaneseTextRecognizerOptions
 import com.google.mlkit.vision.text.TextRecognition
 import java.util.concurrent.TimeUnit
 
-data class BoardRecognition(val sfen: String?, val message: String, val recognized: Int)
+data class BoardRecognition(val sfen: String?, val message: String, val recognized: Int, val board: List<Piece?>? = null)
 
 /**
  * In-device OCR: isolate the grid into two atlases, rotate pieces 180 degrees for gote.
@@ -127,7 +127,8 @@ class ShogiScreenRecognizer : AutoCloseable {
         if (occupied != 40 || ambiguous != 0 || !kings)
             return BoardRecognition(null, "認識未確定：盤上" + occupied +
                 "/40、不確実" + ambiguous + "、王将" + (if (kings) "OK" else "NG") +
-                "。持ち駒・駒種を確認してSFENを修正してください", occupied)
+                "。持ち駒・駒種を確認してSFENを修正してください", occupied,
+                if (ambiguous == 0 && kings) board else null)
         val sfenBoard = (0..8).joinToString("/") { row ->
             val result = StringBuilder()
             var empty = 0
@@ -142,7 +143,12 @@ class ShogiScreenRecognizer : AutoCloseable {
             result.toString()
         }
         val sfen = sfenBoard + (if (turn == Side.BLACK) " b - 1" else " w - 1")
-        return BoardRecognition(sfen, "盤上40枚をOCRで認識。持ち駒なしの局面のみ", occupied)
+        val validated = try {
+            val parsed = Sfen.parse(sfen)
+            ReviewStateTracker.inventoryIsValid(parsed)
+        } catch (_: Exception) { false }
+        if (!validated) return BoardRecognition(null, "駒の種類または総数が不整合です", occupied, board)
+        return BoardRecognition(sfen, "盤上40枚をOCRで認識。持ち駒なし", occupied, board)
     }
 
     override fun close() { client.close() }
