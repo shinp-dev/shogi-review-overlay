@@ -36,6 +36,7 @@ class ReviewCaptureService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private val work = Executors.newSingleThreadExecutor()
     private val busy = AtomicBoolean(false)
+    private var activeTarget: ReviewTarget? = null
     private var lastSfen = ""
     private var lastBoardSignature = 0L
     private var lastRejectedSignature = 0L
@@ -180,6 +181,20 @@ class ReviewCaptureService : Service() {
     }
 
     private fun scan(bitmap: Bitmap) {
+        val selected = OverlaySettings.target(this)
+        if (activeTarget != selected) {
+            // Captured state, inventory history, alignment and move count must
+            // never be carried across different review applications.
+            activeTarget = selected
+            lastSfen = ""
+            lastBoardSignature = 0L
+            lastRejectedSignature = 0L
+            lastRejectedAt = 0L
+            lastState = null
+            startService(Intent(this, OverlayService::class.java).apply {
+                action = OverlayService.ACTION_CLEAR
+            })
+        }
         val hash = signature(bitmap)
         if (hash == lastBoardSignature && lastSfen.isNotEmpty()) return
         if (hash == lastRejectedSignature &&
