@@ -88,24 +88,45 @@ class ShogiScreenRecognizer : AutoCloseable {
         return n >= 3
     }
 
-    private fun bottomHand(frame: Bitmap, r: RectF): PieceType? {
-        val sw = r.width() / 9f
-        val sh = r.height() / 9f
-        val x = r.left.toInt().coerceIn(0, frame.width - 1)
-        val y = (r.bottom + sh * .08f).toInt().coerceIn(0, frame.height - 1)
-        val right = (r.left + sw * 1.5f).toInt().coerceIn(x + 1, frame.width)
-        val bottom = (r.bottom + sh * 1.17f).toInt().coerceIn(y + 1, frame.height)
-        val crop = Bitmap.createBitmap(frame, x, y, right - x, bottom - y)
-        val enlarged = Bitmap.createScaledBitmap(crop, 300, 240, true)
-        crop.recycle()
+    /** Read off-board hand areas. Ambiguous OCR cannot be accepted without inventory validation. */
+    private fun readHands(frame: Bitmap, board: RectF, atTop: Boolean): Map<PieceType, Int> {
+        val sw = board.width()
+        val sh = board.height() / 9f
+        val x0 = board.left.toInt().coerceIn(0, frame.width - 1)
+        val x1 = (board.left + sw * .75f).toInt().coerceIn(x0 + 1, frame.width)
+        val y0 = (if (atTop) board.top - sh * 1.5f else board.bottom + sh * .04f)
+            .toInt().coerceIn(0, frame.height - 1)
+        val y1 = (if (atTop) board.top - sh * .05f else board.bottom + sh * 1.45f)
+            .toInt().coerceIn(y0 + 1, frame.height)
+        val cropped = Bitmap.createBitmap(frame, x0, y0, x1 - x0, y1 - y0)
+        val dst = Bitmap.createScaledBitmap(cropped, 960, 230, true)
+        cropped.recycle()
+        val ocr = if (atTop) {
+            val flip = Matrix().apply { postRotate(180f) }
+            val converted = Bitmap.createBitmap(dst, 0, 0, dst.width, dst.height, flip, true)
+            dst.recycle()
+            converted
+        } else dst
+        val counts = mutableMapOf<PieceType, Int>()
         try {
-            val text = Tasks.await(
-                client.process(InputImage.fromBitmap(enlarged, 0)), 12, TimeUnit.SECONDS
+            val lines = Tasks.await(
+                client.process(InputImage.fromBitmap(ocr, 0)), 12, TimeUnit.SECONDS
             )
-            val types = text.textBlocks.flatMap { it.lines }
-                .flatMap { it.elements }.mapNotNull { glyph(it.text, Side.BLACK)?.type }
-            return types.singleOrNull()
-        } finally { enlarged.recycle() }
+            val pieces = lines.textBlocks.flatMap { it.lines }.flatMap { it.elements }
+            for (element in pieces) {
+                val text = element.text.replace(" ", "").replace("　", "")
+                    .map { ch -> if (ch in '０'..'９') ('0'.code + ch.code - '０'.code).toChar() else ch }
+                    .joinToString("")
+                val type = glyph(text, if (atTop) Side.WHITE else Side.BLACK)?.type ?: continue
+                if (type == PieceType.KING) continue
+                val digits = Regex("[0-9]{1,2}").find(text)?.value?.toIntOrNull()
+                val quantity = (digits ?: 1).coerceIn(1, 18)
+                counts[type] = (counts[type] ?: 0) + quantity
+            }
+        } finally {
+            ocr.recycle()
+        }
+        return counts
     }
 
     /**
@@ -169,7 +190,7 @@ class ShogiScreenRecognizer : AutoCloseable {
         val kings = Side.entries.all { side ->
             board.count { it?.type == PieceType.KING && it.side == side } == 1
         }
-        if (occupied !in 39..40 || ambiguous != 0 || !kings)
+        if (occupied !in 2..40 || ambiguous != 0 || !kings)
             return BoardRecognition(null, "認識未確定：盤上" + occupied +
                 "/40、不確実" + ambiguous + "、王将" + (if (kings) "OK" else "NG") +
                 "。持ち駒・駒種を確認してSFENを修正してください", occupied,
@@ -187,18 +208,27 @@ class ShogiScreenRecognizer : AutoCloseable {
             if (empty > 0) result.append(empty)
             result.toString()
         }
-        val lowerHand = if (occupied == 39) bottomHand(frame, r) else null
-        if (occupied == 39 && lowerHand == null) {
-            return BoardRecognition(null, "持ち駒が認識できません。SFENを確認してください", occupied, board)
+        val lower = if (occupied < 40) readHands(frame, r, atTop = false) else emptyMap()
+        val upper = if (occupied < 40) readHands(frame, r, atTop = true) else emptyMap()
+        val handBuffer = StringBuilder()
+        for ((side, held) in listOf(Side.BLACK to lower, Side.WHITE to upper)) {
+            for (type in listOf(PieceType.ROOK, PieceType.BISHOP, PieceType.GOLD,
+                PieceType.SILVER, PieceType.KNIGHT, PieceType.LANCE, PieceType.PAWN)) {
+                val number = held[type] ?: 0
+                if (number > 1) handBuffer.append(number)
+                if (number > 0) handBuffer.append(
+                    if (side == Side.BLACK) type.sfen else type.sfen.lowercaseChar()
+                )
+            }
         }
-        val hand = lowerHand?.sfen?.toString() ?: "-"
-        val sfen = sfenBoard + (if (turn == Side.BLACK) " b " else " w ") + hand + " 1"
+        val hands = if (handBuffer.isEmpty()) "-" else handBuffer.toString()
+        val sfen = sfenBoard + (if (turn == Side.BLACK) " b " else " w ") + hands + " 1"
         val validated = try {
             val parsed = Sfen.parse(sfen)
             ReviewStateTracker.inventoryIsValid(parsed)
         } catch (_: Exception) { false }
         if (!validated) return BoardRecognition(null, "駒の種類または総数が不整合です", occupied, board)
-        return BoardRecognition(sfen, "盤上" + occupied + "枚をOCRで認識（持ち駒: " + (lowerHand?.kanji ?: "なし") + "）", occupied, board)
+        return BoardRecognition(sfen, "盤上" + occupied + "枚、持ち駒" + hands + "をOCRで認識", occupied, board)
     }
 
     override fun close() { client.close() }
