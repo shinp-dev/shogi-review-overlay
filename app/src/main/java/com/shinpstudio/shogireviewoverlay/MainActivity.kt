@@ -101,7 +101,7 @@ class MainActivity : Activity() {
         }
         button("② 盤面位置を調整（完了ボタンで戻る）") {
             startOverlay(OverlayService.ACTION_CALIBRATE)
-            Toast.makeText(this, "将棋ウォーズの振り返り画面に切り替え、枠を合わせて「完了」", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "対象アプリの振り返り画面に切り替え、枠を合わせて「完了」", Toast.LENGTH_LONG).show()
         }
 
         val cropLabel = text("枠線の除外: 外周8%（盤面の線を含めない）", 14f)
@@ -244,7 +244,7 @@ class MainActivity : Activity() {
         try {
             startOverlay(OverlayService.ACTION_REFRESH)
             startForegroundService(intent)
-            status.text = "認識を開始しました。将棋ウォーズの対局後振り返りへ切り替えてください"
+            status.text = "認識を開始しました。選択したアプリの対局後振り返りへ切り替えてください"
         } catch (e: Exception) {
             status.text = "画面認識を開始できません: " + e.message
         }
