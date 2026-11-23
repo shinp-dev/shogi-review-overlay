@@ -9,7 +9,9 @@ data class BoardRecognition(
     val sfen: String?,
     val message: String,
     val recognized: Int,
-    val board: List<Piece?>? = null
+    val board: List<Piece?>? = null,
+    val offsetX: Int = 0,
+    val offsetY: Int = 0
 )
 
 /**
@@ -65,49 +67,28 @@ class ShogiScreenRecognizer(private val context: Context) : AutoCloseable {
         val pixels = IntArray(frame.width * frame.height)
         frame.getPixels(pixels, 0, frame.width, 0, 0, frame.width, frame.height)
 
-        val board = MutableList<Piece?>(81) { null }
-        var uncertain = 0
-        var occupied = 0
-        var minScore = 1.0
-        for (square in 0..80) {
-            val features = PieceTemplateModel.sample(
-                pixels, frame.width, frame.height,
-                r.left, r.top, r.width(), r.height(), square, inset
-            )
-            val result = pieces.match(features)
-            if (result.unknown) {
-                uncertain++
-                continue
-            }
-            val code = result.code ?: continue
-            occupied++
-            minScore = kotlin.math.min(minScore, result.score)
-            board[square] = Piece(
-                PieceType.fromSfen(code),
-                if (code.isUpperCase()) Side.BLACK else Side.WHITE
-            )
-        }
-        val kingsValid = Side.entries.all { side ->
-            board.count { it?.type == PieceType.KING && it.side == side } == 1
-        }
-        if (uncertain > 0 || !kingsValid)
-            return BoardRecognition(
-                null,
-                "画像比較が未確定: " + occupied + "枚 / 不確定" + uncertain + "マス / 王将" +
-                    (if (kingsValid) "OK" else "NG") + "。テンプレートを追加してください",
-                occupied
-            )
-
-        // We do not synthesize hands from missing board pieces. A previous
-        // trusted position may reconstruct hands from exactly one legal move.
-        if (occupied != 40) {
-            return BoardRecognition(
-                null,
-                "盤上" + occupied + "枚を画像比較で認識。持ち駒は直前の合法局面から復元します",
-                occupied,
-                board
-            )
-        }
+        val corrected = BoardAlignment.find(
+            pixels, frame.width, frame.height, r, inset, pieces
+        )
+        val board = corrected.board
+        val occupied = corrected.occupied
+        if (!corrected.reliable) return BoardRecognition(
+            null,
+            "位置自動補正後も未確定: " + occupied + "枚、不確実" +
+                corrected.uncertain + "マス、王将" +
+                (if (corrected.kings) "OK" else "NG") +
+                "（補正: " + corrected.dx + "," + corrected.dy + "px）",
+            occupied
+        )
+        if (occupied != 40) return BoardRecognition(
+            null,
+            "盤上" + occupied + "枚を認識。持ち駒は直前局面から復元します" +
+                "（補正: " + corrected.dx + "," + corrected.dy + "px）",
+            occupied,
+            board,
+            corrected.dx,
+            corrected.dy
+        )
         val position = ShogiPosition(
             board = board,
             turn = turn,
@@ -117,7 +98,12 @@ class ShogiScreenRecognizer(private val context: Context) : AutoCloseable {
         if (!ReviewStateTracker.inventoryIsValid(position))
             return BoardRecognition(null, "駒種ごとの枚数が不整合です", occupied)
         val sfen = ReviewStateTracker.format(position)
-        return BoardRecognition(sfen, "画像比較で40枚を認識（最低スコア: %.2f）".format(minScore), occupied, board)
+        return BoardRecognition(
+            sfen,
+            "40枚認識・位置補正（" + corrected.dx + "," + corrected.dy +
+                "px、最低一致度 %.2f）".format(corrected.lowestScore),
+            occupied, board, corrected.dx, corrected.dy
+        )
     }
 
     override fun close() = Unit
