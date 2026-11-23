@@ -19,29 +19,59 @@ data class BoardRect(val left: Float, val top: Float, val width: Float, val heig
     }
 }
 
+enum class ReviewTarget(val storageValue: String) {
+    SHOGI_WARS("wars"),
+    SHOGI_QUEST("quest")
+}
+
 object OverlaySettings {
     private const val PREFS = "shogi_overlay"
 
     fun preferences(context: Context) =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
 
+    fun target(context: Context): ReviewTarget =
+        if (preferences(context).getString("review_target", "wars") == "quest")
+            ReviewTarget.SHOGI_QUEST else ReviewTarget.SHOGI_WARS
+
+    fun setTarget(context: Context, selected: ReviewTarget) {
+        preferences(context).edit()
+            .putString("review_target", selected.storageValue)
+            .remove("last_auto_sfen")
+            .remove("last_auto_status")
+            .apply()
+    }
+
+    // Keep the existing Wars preference keys unchanged for existing installs.
+    // Quest uses separate calibration and auto-alignment values.
+    private fun key(target: ReviewTarget, name: String): String =
+        if (target == ReviewTarget.SHOGI_QUEST) "quest_" + name else name
+
     fun board(context: Context): BoardRect {
         val p = preferences(context)
+        val t = target(context)
+        // Quest's initial frame is estimated from the supplied 691x1536 review screenshot.
+        // Users can correct it with the normal drag/resize calibration.
+        val default = if (t == ReviewTarget.SHOGI_QUEST)
+            BoardRect(0.012f, 0.179f, 0.977f, 0.480f)
+        else
+            BoardRect(0.02f, 0.285f, 0.96f, 0.475f)
         return BoardRect(
-            p.getFloat("board_left", 0.02f),
-            p.getFloat("board_top", 0.285f),
-            p.getFloat("board_width", 0.96f),
-            p.getFloat("board_height", 0.475f)
+            p.getFloat(key(t, "board_left"), default.left),
+            p.getFloat(key(t, "board_top"), default.top),
+            p.getFloat(key(t, "board_width"), default.width),
+            p.getFloat(key(t, "board_height"), default.height)
         )
     }
     fun saveBoard(context: Context, board: BoardRect) {
+        val t = target(context)
         preferences(context).edit()
-            .putFloat("board_left", board.left)
-            .putFloat("board_top", board.top)
-            .putFloat("board_width", board.width)
-            .putFloat("board_height", board.height)
-            .putInt("alignment_dx", 0)
-            .putInt("alignment_dy", 0)
+            .putFloat(key(t, "board_left"), board.left)
+            .putFloat(key(t, "board_top"), board.top)
+            .putFloat(key(t, "board_width"), board.width)
+            .putFloat(key(t, "board_height"), board.height)
+            .putInt(key(t, "alignment_dx"), 0)
+            .putInt(key(t, "alignment_dy"), 0)
             .apply()
     }
     /**
@@ -51,15 +81,16 @@ object OverlaySettings {
     fun displayBoard(context: Context, screenWidth: Int, screenHeight: Int): RectF =
         board(context).pixels(screenWidth, screenHeight).apply {
             offset(
-                preferences(context).getInt("alignment_dx", 0).toFloat(),
-                preferences(context).getInt("alignment_dy", 0).toFloat()
+                preferences(context).getInt(key(target(context), "alignment_dx"), 0).toFloat(),
+                preferences(context).getInt(key(target(context), "alignment_dy"), 0).toFloat()
             )
         }
 
     fun saveAlignment(context: Context, dx: Int, dy: Int) {
+        val t = target(context)
         preferences(context).edit()
-            .putInt("alignment_dx", dx)
-            .putInt("alignment_dy", dy)
+            .putInt(key(t, "alignment_dx"), dx)
+            .putInt(key(t, "alignment_dy"), dy)
             .apply()
     }
 

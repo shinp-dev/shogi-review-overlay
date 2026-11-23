@@ -18,15 +18,18 @@ data class BoardRecognition(
  * compare horizontal and vertical ink distributions plus exact pixel positions.
  *
  * This class does NOT use OCR, ML Kit, or machine learning inference.
- * Reference masks are loaded from 16 unpromoted side-specific piece templates.
+ * Reference masks are selected from Wars or Quest's 16 unpromoted, side-specific piece templates.
  *
  * It deliberately refuses unknown promoted pieces or uncertain squares. When
  * previous valid position exists, ReviewStateTracker can reconstruct one legal
  * move (including drops and captures) from this detected board.
  */
 class ShogiScreenRecognizer(private val context: Context) : AutoCloseable {
-    private val pieces: PieceTemplateModel = PieceTemplateModel.create(
+    private val warsPieces: PieceTemplateModel = PieceTemplateModel.create(
         context.assets.open("shogi_templates_v1.txt").bufferedReader().use { it.readText() }
+    )
+    private val questPieces: PieceTemplateModel = PieceTemplateModel.create(
+        context.assets.open("shogi_quest_templates_v1.txt").bufferedReader().use { it.readText() }
     )
 
     fun recognize(frame: Bitmap, geometry: BoardRect, turn: Side): BoardRecognition {
@@ -41,8 +44,10 @@ class ShogiScreenRecognizer(private val context: Context) : AutoCloseable {
         val pixels = IntArray(frame.width * frame.height)
         frame.getPixels(pixels, 0, frame.width, 0, 0, frame.width, frame.height)
 
+        val classifier = if (OverlaySettings.target(context) == ReviewTarget.SHOGI_QUEST)
+            questPieces else warsPieces
         val corrected = BoardAlignment.find(
-            pixels, frame.width, frame.height, r, inset, pieces
+            pixels, frame.width, frame.height, r, inset, classifier
         )
         val board = corrected.board
         val occupied = corrected.occupied

@@ -15,6 +15,8 @@ import android.view.View
 import android.widget.Button
 import android.widget.EditText
 import android.widget.LinearLayout
+import android.widget.RadioButton
+import android.widget.RadioGroup
 import android.widget.ScrollView
 import android.widget.SeekBar
 import android.widget.Switch
@@ -59,6 +61,36 @@ class MainActivity : Activity() {
         content.addView(text("将棋レビュー・オーバーレイ", 23f))
         content.addView(text("対局後の振り返り専用です。対局中には使用しないでください。", 14f))
         content.addView(text("駒認識は白黒画像比較（上下左右8%を除外）、探索はやねうら王Material版です。不確実な場合はSFENを手入力できます。", 13f))
+        content.addView(text("対象アプリ", 18f))
+        val targetSelector = RadioGroup(this).apply {
+            orientation = RadioGroup.HORIZONTAL
+            val wars = RadioButton(this@MainActivity).apply {
+                id = View.generateViewId()
+                text = "将棋ウォーズ"
+            }
+            val quest = RadioButton(this@MainActivity).apply {
+                id = View.generateViewId()
+                text = "将棋クエスト"
+            }
+            addView(wars)
+            addView(quest)
+            check(if (OverlaySettings.target(this@MainActivity) == ReviewTarget.SHOGI_QUEST)
+                quest.id else wars.id)
+            setOnCheckedChangeListener { _, checked ->
+                val selected = if (checked == quest.id) ReviewTarget.SHOGI_QUEST
+                    else ReviewTarget.SHOGI_WARS
+                if (selected != OverlaySettings.target(this@MainActivity)) {
+                    OverlaySettings.setTarget(this@MainActivity, selected)
+                    // Never transfer a Wars capture / candidate position to Quest.
+                    stopService(Intent(this@MainActivity, ReviewCaptureService::class.java))
+                    stopService(Intent(this@MainActivity, OverlayService::class.java))
+                    if (::status.isInitialized)
+                        status.text = "対象アプリを切り替えました。枠を調整し、画面共有から再開してください。"
+                }
+            }
+        }
+        content.addView(targetSelector)
+        content.addView(text("切替後は対象アプリで枠調整を行ってください。盤面位置はアプリ別に記憶します。将棋クエストは9路・先手が下の振り返り画面向けです。", 13f))
 
         button("① ほかのアプリの上に表示を許可") {
             val intent = Intent(
@@ -69,7 +101,7 @@ class MainActivity : Activity() {
         }
         button("② 盤面位置を調整（完了ボタンで戻る）") {
             startOverlay(OverlayService.ACTION_CALIBRATE)
-            Toast.makeText(this, "将棋ウォーズの振り返り画面に切り替え、枠を合わせて「完了」", Toast.LENGTH_LONG).show()
+            Toast.makeText(this, "対象アプリの振り返り画面に切り替え、枠を合わせて「完了」", Toast.LENGTH_LONG).show()
         }
 
         val cropLabel = text("枠線の除外: 外周8%（盤面の線を含めない）", 14f)
@@ -212,7 +244,7 @@ class MainActivity : Activity() {
         try {
             startOverlay(OverlayService.ACTION_REFRESH)
             startForegroundService(intent)
-            status.text = "認識を開始しました。将棋ウォーズの対局後振り返りへ切り替えてください"
+            status.text = "認識を開始しました。選択したアプリの対局後振り返りへ切り替えてください"
         } catch (e: Exception) {
             status.text = "画面認識を開始できません: " + e.message
         }
