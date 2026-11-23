@@ -27,7 +27,7 @@ class WarsHandDigitScreenshotTest {
         ))).use { it.readBytes() }
         val width = 40
         val height = 67
-        assertEquals(3 * width * height / 8 + 1, masks.size)
+        assertEquals(3 * width * height / 8, masks.size)
         for ((index, number) in listOf(2, 4, 6).withIndex()) {
             val pixels = IntArray(width * height) { i ->
                 val bit = index * width * height + i
