@@ -23,13 +23,25 @@ jobs:
           test -n "$SDKMANAGER"
           yes | "$SDKMANAGER" --licenses >/dev/null || true
           "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
+      - name: Cache native YaneuraOu material engine
+        id: engine-cache
+        uses: actions/cache@v4
+        with:
+          path: app/src/main/jniLibs/arm64-v8a/libshogi_engine.so
+          key: yaneuraou-material-arm64-3bd5141-ndkr23b-v1
       - name: Setup Android NDK
+        if: steps.engine-cache.outputs.cache-hit != 'true'
         uses: nttld/setup-ndk@v1
         with:
           ndk-version: r23b
       - name: Compile YaneuraOu Material for arm64-v8a
+        if: steps.engine-cache.outputs.cache-hit != 'true'
         run: |
-          git clone --depth 1 https://github.com/yaneurao/YaneuraOu.git upstream/YaneuraOu
+          mkdir -p upstream/YaneuraOu
+          git -C upstream/YaneuraOu init
+          git -C upstream/YaneuraOu remote add origin https://github.com/yaneurao/YaneuraOu.git
+          git -C upstream/YaneuraOu fetch --depth 1 origin 3bd5141dfd50b3fc6abd9a9db7561d9338a883d0
+          git -C upstream/YaneuraOu checkout --detach FETCH_HEAD
           cd upstream/YaneuraOu
           echo "YaneuraOu source commit: $(git rev-parse HEAD)"
           bash tools/build/android_build.sh -e YANEURAOU_ENGINE_MATERIAL -x 'APP_ABI=arm64-v8a'
