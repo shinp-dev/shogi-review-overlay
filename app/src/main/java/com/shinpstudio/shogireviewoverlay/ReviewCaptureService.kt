@@ -180,6 +180,17 @@ class ReviewCaptureService : Service() {
     }
 
     private fun scan(bitmap: Bitmap) {
+        val boardRect = OverlaySettings.board(this).pixels(bitmap.width, bitmap.height)
+        if (recognizer.looksLikeActiveMatch(bitmap, boardRect)) {
+            lastSfen = ""
+            lastState = null
+            lastBoardSignature = 0L
+            startService(Intent(this, OverlayService::class.java).apply {
+                action = OverlayService.ACTION_CLEAR
+            })
+            saveStatus("対局中の画面を検出したため解析を停止しました")
+            return
+        }
         val hash = signature(bitmap)
         if (hash == lastBoardSignature && lastSfen.isNotEmpty()) return
         if (hash == lastRejectedSignature &&
