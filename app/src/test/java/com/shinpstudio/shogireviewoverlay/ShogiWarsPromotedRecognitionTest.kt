@@ -77,7 +77,7 @@ class ShogiWarsPromotedRecognitionTest {
 
         assertEquals(1, board.count { it?.type == PieceType.KING && it.side == Side.BLACK })
         assertEquals(1, board.count { it?.type == PieceType.KING && it.side == Side.WHITE })
-        // The opponent's horse is at 6b; the player's dragon is at 7c.
+        // The promoted bishop (horse) and rook (dragon) retain the player's ownership.
         assertEquals(Piece(PieceType.BISHOP, Side.BLACK, true), board[1 * 9 + 3])
         assertEquals(Piece(PieceType.ROOK, Side.BLACK, true), board[2 * 9 + 2])
         assertEquals(Piece(PieceType.LANCE, Side.BLACK, true), board[2 * 9])
@@ -100,7 +100,7 @@ class ShogiWarsPromotedRecognitionTest {
         assertTrue("Detected piece inventory does not add up to 40", ReviewStateTracker.inventoryIsValid(state))
         val sfen = ReviewStateTracker.format(state)
         assertEquals(state.board, Sfen.parse(sfen).board)
-        assertEquals(state.hands, Sfen.parse(sfen).hands.filterValues { it.isNotEmpty() })
+        assertEquals(state.hands, Sfen.parse(sfen).hands)
     }
 
     @Test fun originalBasicPiecesStillRecognizeAfterAddingNewReferences() {
