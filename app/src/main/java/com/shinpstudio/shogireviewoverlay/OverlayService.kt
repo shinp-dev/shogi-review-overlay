@@ -130,7 +130,10 @@ class OverlayService : Service() {
                 if (!calibrating) showPassive()
             }
         }
-        return START_NOT_STICKY
+        // If Android reclaims this backgrounded foreground service, restart
+        // it with a passive green frame (onStartCommand(null)). An explicit
+        // ACTION_STOP still uses START_NOT_STICKY above.
+        return START_STICKY
     }
 
     private fun passiveParams(): WindowManager.LayoutParams =
