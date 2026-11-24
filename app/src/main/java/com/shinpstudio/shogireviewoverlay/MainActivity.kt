@@ -103,9 +103,10 @@ class MainActivity : Activity() {
             if (!Settings.canDrawOverlays(this)) {
                 status.text = "表示権限がありません。先に①を許可してください。"
             } else {
-                startOverlay(OverlayService.ACTION_TEST)
-                status.text = "緑の枠と「枠表示テスト：起動中」が出るか確認してください。" +
-                    "出なければ「枠の表示状態を確認」を押してください。"
+                if (startOverlay(OverlayService.ACTION_TEST)) {
+                    status.text = "緑の枠と「枠表示テスト：起動中」が出るか確認してください。" +
+                        "出なければ「枠の表示状態を確認」を押してください。"
+                }
             }
         }
         button("枠の表示状態を確認") {
@@ -258,7 +259,7 @@ class MainActivity : Activity() {
             putExtra(ReviewCaptureService.EXTRA_DATA, data)
         }
         try {
-            startOverlay(OverlayService.ACTION_REFRESH)
+            if (!startOverlay(OverlayService.ACTION_REFRESH)) return
             startForegroundService(intent)
             status.text = "認識を開始しました。選択したアプリの対局後振り返りへ切り替えてください"
         } catch (e: Exception) {
@@ -275,10 +276,12 @@ class MainActivity : Activity() {
             override fun onStopTrackingTouch(bar: SeekBar?) = Unit
         }
 
-    private fun startOverlay(action: String, extras: (Intent.() -> Unit)? = null) {
+    private fun startOverlay(action: String, extras: (Intent.() -> Unit)? = null): Boolean {
         if (!Settings.canDrawOverlays(this)) {
-            Toast.makeText(this, "先に「他のアプリの上に表示」を許可してください", Toast.LENGTH_LONG).show()
-            return
+            val message = "先に「他のアプリの上に表示」を許可してください"
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            if (::status.isInitialized) status.text = message
+            return false
         }
         val intent = Intent(this, OverlayService::class.java).apply {
             this.action = action
@@ -287,12 +290,14 @@ class MainActivity : Activity() {
         try {
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent)
             else startService(intent)
+            return true
         } catch (exception: Exception) {
             val message = "オーバーレイ開始に失敗: " +
                 exception.javaClass.simpleName + " " + exception.message
             OverlaySettings.preferences(this).edit()
                 .putString("last_overlay_status", message).apply()
-            status.text = message
+            if (::status.isInitialized) status.text = message
+            return false
         }
     }
 
