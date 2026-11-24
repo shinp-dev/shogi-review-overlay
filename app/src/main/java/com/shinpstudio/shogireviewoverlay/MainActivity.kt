@@ -99,6 +99,23 @@ class MainActivity : Activity() {
             )
             startActivity(intent)
         }
+        button("枠だけ表示（動作確認・解析なし）") {
+            if (!Settings.canDrawOverlays(this)) {
+                status.text = "表示権限がありません。先に①を許可してください。"
+            } else {
+                if (startOverlay(OverlayService.ACTION_TEST)) {
+                    status.text = "緑の枠と「枠表示テスト：起動中」が出るか確認してください。" +
+                        "出なければ「枠の表示状態を確認」を押してください。"
+                }
+            }
+        }
+        button("枠の表示状態を確認") {
+            status.text = prefs.getString("last_overlay_status",
+                "まだ枠表示サービスの記録がありません。先に表示テストを押してください。")
+                ?: "表示状態を取得できません"
+        }
+        content.addView(text("初回は①で権限を許可し、「枠だけ表示」で動作確認。" +
+            "手動の盤面位置調整は必須ではなく、対象ごとに初期位置があります。", 13f))
         button("② 盤面位置を調整（完了ボタンで戻る）") {
             startOverlay(OverlayService.ACTION_CALIBRATE)
             Toast.makeText(this, "対象アプリの振り返り画面に切り替え、枠を合わせて「完了」", Toast.LENGTH_LONG).show()
@@ -242,7 +259,7 @@ class MainActivity : Activity() {
             putExtra(ReviewCaptureService.EXTRA_DATA, data)
         }
         try {
-            startOverlay(OverlayService.ACTION_REFRESH)
+            if (!startOverlay(OverlayService.ACTION_REFRESH)) return
             startForegroundService(intent)
             status.text = "認識を開始しました。選択したアプリの対局後振り返りへ切り替えてください"
         } catch (e: Exception) {
@@ -259,10 +276,12 @@ class MainActivity : Activity() {
             override fun onStopTrackingTouch(bar: SeekBar?) = Unit
         }
 
-    private fun startOverlay(action: String, extras: (Intent.() -> Unit)? = null) {
+    private fun startOverlay(action: String, extras: (Intent.() -> Unit)? = null): Boolean {
         if (!Settings.canDrawOverlays(this)) {
-            Toast.makeText(this, "先に「他のアプリの上に表示」を許可してください", Toast.LENGTH_LONG).show()
-            return
+            val message = "先に「他のアプリの上に表示」を許可してください"
+            Toast.makeText(this, message, Toast.LENGTH_LONG).show()
+            if (::status.isInitialized) status.text = message
+            return false
         }
         val intent = Intent(this, OverlayService::class.java).apply {
             this.action = action
@@ -271,8 +290,14 @@ class MainActivity : Activity() {
         try {
             if (Build.VERSION.SDK_INT >= 26) startForegroundService(intent)
             else startService(intent)
+            return true
         } catch (exception: Exception) {
-            status.text = "オーバーレイ開始に失敗: " + exception.message
+            val message = "オーバーレイ開始に失敗: " +
+                exception.javaClass.simpleName + " " + exception.message
+            OverlaySettings.preferences(this).edit()
+                .putString("last_overlay_status", message).apply()
+            if (::status.isInitialized) status.text = message
+            return false
         }
     }
 

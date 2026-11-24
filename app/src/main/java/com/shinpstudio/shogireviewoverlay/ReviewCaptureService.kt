@@ -11,6 +11,7 @@ import android.media.ImageReader
 import android.media.projection.MediaProjection
 import android.media.projection.MediaProjectionManager
 import android.os.*
+import android.util.Log
 import android.view.WindowManager
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -110,12 +111,27 @@ class ReviewCaptureService : Service() {
         return START_NOT_STICKY
     }
 
+    private fun reportOverlayFailure(operation: String, error: Exception) {
+        val message = operation + ": " + error.javaClass.simpleName +
+            " " + (error.message ?: "")
+        Log.e("ShogiOverlay", message, error)
+        OverlaySettings.preferences(this).edit()
+            .putString("last_overlay_status", message)
+            .apply()
+    }
+
     private fun restoreOverlay() {
         try {
             startService(Intent(this, OverlayService::class.java).apply {
                 action = OverlayService.ACTION_RESUME
             })
-        } catch (_: Exception) {}
+        } catch (error: Exception) {
+            // Android may reject a background service start if the overlay
+            // service was killed while MediaProjection continued capturing.
+            // Never swallow this: the user otherwise sees no border and no
+            // indication of why it disappeared.
+            reportOverlayFailure("画面取得後の枠の復帰に失敗", error)
+        }
     }
 
     private fun grabFrame() {
@@ -155,9 +171,13 @@ class ReviewCaptureService : Service() {
                 // Drop the previous frame before hiding overlay; the next frame
                 // must be taken *after* the overlay has disappeared.
                 try { reader.acquireLatestImage()?.close() } catch (_: Exception) {}
-                startService(Intent(this@ReviewCaptureService, OverlayService::class.java).apply {
-                    action = OverlayService.ACTION_HIDE
-                })
+                try {
+                    startService(Intent(this@ReviewCaptureService, OverlayService::class.java).apply {
+                        action = OverlayService.ACTION_HIDE
+                    })
+                } catch (error: Exception) {
+                    reportOverlayFailure("画面取得前の枠の一時非表示に失敗", error)
+                }
                 main.postDelayed({ grabFrame() }, 350)
             }
             main.postDelayed(this, 4500)

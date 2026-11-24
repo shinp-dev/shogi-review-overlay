@@ -18,6 +18,12 @@ data class OverlayCandidate(val move: ShogiMove, val label: String, val score: I
 
 class CandidateOverlayView(context: Context) : View(context) {
     private var candidates: List<OverlayCandidate> = emptyList()
+    private var diagnostic = false
+
+    fun setDiagnostic(enabled: Boolean) {
+        diagnostic = enabled
+        invalidate()
+    }
     private val paint = Paint(Paint.ANTI_ALIAS_FLAG)
     private val colors = intArrayOf(
         Color.rgb(45, 198, 86),
@@ -205,5 +211,20 @@ class CandidateOverlayView(context: Context) : View(context) {
             drawPanel(canvas, board)
         }
         drawBoardFrame(canvas, board)
+        if (diagnostic) {
+            // Diagnostic mode separates WindowManager visibility from board
+            // recognition. This banner must appear even with zero moves.
+            val top = (board.top - dp(36f)).coerceAtLeast(dp(2f))
+            val left = board.left.coerceAtLeast(dp(2f))
+            paint.style = Paint.Style.FILL
+            paint.color = 0xE5212731.toInt()
+            canvas.drawRoundRect(left, top, left + dp(190f),
+                top + dp(30f), dp(7f), dp(7f), paint)
+            paint.color = Color.WHITE
+            paint.typeface = Typeface.DEFAULT_BOLD
+            paint.textSize = dp(13f)
+            canvas.drawText("枠表示テスト：起動中", left + dp(8f),
+                top + dp(21f), paint)
+        }
     }
 }
