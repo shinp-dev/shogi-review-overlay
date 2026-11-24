@@ -1,5 +1,5 @@
 # Wars badge numerals, yellow glyph silhouettes extracted from user-provided replay image.
-# Verified from replay screenshots: 2, 3, 4, 6. Others remain unknown.
+# Verified from supplied Wars screenshots: 2, 3, 4, 6, 7, 8, 9, 10, 11. Others remain unknown.
 # Repeated 2 = additional real screenshot reference; 4/6 use real yellow connected-component masks.
 2:AEAAwAD8Af4DxwOHB4cDBwAHAAYADgAOADgAcADwAeABgAMAAwAH/wf/DAAYAHAA
 3:AcAP/B/+P/94H3AP8AcABwAHAA8AHwP8A/gD/gA/AA8ABwAH8AdwB3gHfA8//x/+
@@ -7,3 +7,11 @@
 2:A/gP/A8+Dg8OBw4HDAcABwAHAA4AHgA8ADgAcAHgAcADwAcADwAOAB4AP////wf/
 4:ADwAeAB8APwB+AH4A9gDmAMYBhgOGAwYHBg4GHgYeBz/////B/8AGAAYABgAGAAY
 6:APAH/A/+H/88DzgHeAB4AHAAcfB3/H/+/h/4B3gHcAdwB3AHeAd4BzwHPh8f/g/8
+# Lower-tray screenshot masks; two-digit counts are whole-number silhouettes.
+6:APAH/A/+Hh88DzgHeABwAHAA8/j3/v///A/4B/gH8APwA3ADeAd4BzwPPn8f/w/+
+2:APAP/B/+Ph98D3gHcAcABwAHAA8ADwAeADwA+AHwA+AHgA8AHgA8AHgAf///////
+7:////////AAcADwAeABwAPAB4AHgA8ADgAeABwAPAA8ADwAeAB4AHgAeAB4AHgAEA
+8:AeAP/D/+fA94D3AHcAdwB3gPfA8/fg/8H/w+H3gH8AfwA/AD8AfwB/gHfA8//h/8
+9:AcAP+D/8PB54D/AH8AfwB/AH8AfwB3gPeA8/fx//D/cABwAHAA9wD3gefD4//B/4
+10:AAgYPhg+OHd4Y2hjSGEIQQhBCMEIwQjBCMEIwQjBCMEIwQhBCGMIYwhj/3f/Pv8e
+11:GBg4ODg4eHhYaFhICAgYCBgIGAgYCBgIGAgYCBgIGAgYCBgIGAgYHP///////+f/

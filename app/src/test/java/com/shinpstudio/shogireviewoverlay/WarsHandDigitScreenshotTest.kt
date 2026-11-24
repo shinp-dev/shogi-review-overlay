@@ -44,6 +44,26 @@ class WarsHandDigitScreenshotTest {
         }
     }
 
+    @Test fun readsLowerTraySixThroughElevenAndTwoWithRealBackgroundPixels() {
+        val masks = GZIPInputStream(ByteArrayInputStream(Base64.getDecoder().decode(
+            File("src/test/resources/wars-yellow-count-6to11.b64").readText().trim()
+        ))).use { it.readBytes() }
+        val width = 56
+        val height = 44
+        val expected = listOf(6, 7, 8, 9, 10, 11, 2)
+        assertEquals(expected.size * width * height / 8, masks.size)
+        for ((index, number) in expected.withIndex()) {
+            val pixels = IntArray(width * height) { i ->
+                val bit = index * width * height + i
+                val on = ((masks[bit / 8].toInt() and 255) and
+                    (1 shl (7 - bit % 8))) != 0
+                if (on) 0xFFFFEA78.toInt() else 0xFF121212.toInt()
+            }
+            assertEquals("Misread lower-tray badge $number", number,
+                recognizer.readBadgeInRegion(pixels, width, height, 0, width, 0, height))
+        }
+    }
+
     @Test fun noBadgeMeansOneButOutOfFrameIsRejected() {
         val width = 40
         val height = 67
@@ -57,9 +77,9 @@ class WarsHandDigitScreenshotTest {
     @Test fun onlyScreenshotConfirmedDigitsAreListed() {
         val rows = File("src/main/assets/shogi_wars_hand_digits_v1.txt").readLines()
             .filter { it.isNotBlank() && !it.startsWith("#") }
-        assertEquals(setOf('2', '3', '4', '6'), rows.map { it[0] }.toSet())
+        assertEquals(setOf(2, 3, 4, 6, 7, 8, 9, 10, 11), rows.map { it.substringBefore(':').toInt() }.toSet())
         for (row in rows) {
-            assertEquals(48, Base64.getDecoder().decode(row.substring(2)).size)
+            assertEquals(48, Base64.getDecoder().decode(row.substringAfter(':')).size)
         }
     }
 }

@@ -16,26 +16,27 @@ internal class WarsHandRecognizer(iconsText: String, digitsText: String) {
     private data class Mask(val bits: BooleanArray, val axes: IntArray, val ink: Int)
     private data class Rect(val x: Int, val y: Int, val w: Int, val h: Int)
     private data class Candidate(val code: Char, val rect: Rect, val score: Double)
-    private data class Match(val code: Char, val score: Double, val margin: Double)
-    private val icons: Map<Char, List<Mask>> = load(iconsText, 32, 32)
-    private val digits: Map<Char, List<Mask>> = load(digitsText, 16, 24)
+    private data class Match<T>(val code: T, val score: Double, val margin: Double)
+    private val icons = load(iconsText, 32, 32) { it.single() }
+    private val digits = load(digitsText, 16, 24) { it.toInt().also { n -> require(n in 2..18) } }
 
     init {
         require("bpPLG".all { it in icons })
-        require('2' in digits && '3' in digits)
+        require(2 in digits && 3 in digits)
     }
 
-    private fun load(text: String, w: Int, h: Int): Map<Char, List<Mask>> {
-        val entries = mutableMapOf<Char, MutableList<Mask>>()
+    private fun <T> load(text: String, w: Int, h: Int, key: (String) -> T): Map<T, List<Mask>> {
+        val entries = mutableMapOf<T, MutableList<Mask>>()
         for (line in text.lineSequence().map { it.trim() }) {
             if (line.isEmpty() || line.startsWith("#")) continue
-            require(line.length > 2 && line[1] == ':')
-            val bytes = Base64.getDecoder().decode(line.substring(2))
+            val separator = line.indexOf(':')
+            require(separator > 0 && separator < line.lastIndex)
+            val bytes = Base64.getDecoder().decode(line.substring(separator + 1))
             require(bytes.size == w * h / 8)
             val bits = BooleanArray(w * h) { i ->
                 ((bytes[i / 8].toInt() and 255) and (1 shl (7 - (i % 8)))) != 0
             }
-            entries.getOrPut(line[0]) { mutableListOf() }.add(mask(bits, w, h))
+            entries.getOrPut(key(line.substring(0, separator))) { mutableListOf() }.add(mask(bits, w, h))
         }
         return entries
     }
@@ -70,7 +71,7 @@ internal class WarsHandRecognizer(iconsText: String, digitsText: String) {
             .45 * common / sqrt(a.ink.toDouble() * b.ink)
     }
 
-    private fun match(actual: Mask, refs: Map<Char, List<Mask>>, choices: (Char) -> Boolean): Match? {
+    private fun <T> match(actual: Mask, refs: Map<T, List<Mask>>, choices: (T) -> Boolean): Match<T>? {
         val scored = refs.filterKeys(choices).map { (code, templates) ->
             code to templates.maxOf { score(actual, it) }
         }.sortedByDescending { it.second }
@@ -214,11 +215,11 @@ internal class WarsHandRecognizer(iconsText: String, digitsText: String) {
         // Wars has pale-yellow counts on the *right* of an icon, in contrast
         // to Quest's red counts. The upper count sits lower, the lower count
         // sits just above the icon's right shoulder.
-        val x0 = (rect.x + .67f * rect.w).roundToInt().coerceIn(0, width)
+        val x0 = (rect.x + .43f * rect.w).roundToInt().coerceIn(0, width)
         val x1 = (rect.x + 1.32f * rect.w).roundToInt().coerceIn(0, width)
-        val y0 = (rect.y + (if (side == Side.WHITE) .33f else -.40f) * rect.h)
+        val y0 = (rect.y + (if (side == Side.WHITE) .33f else -.30f) * rect.h)
             .roundToInt().coerceIn(0, height)
-        val y1 = (rect.y + (if (side == Side.WHITE) 1.20f else .45f) * rect.h)
+        val y1 = (rect.y + (if (side == Side.WHITE) 1.20f else .33f) * rect.h)
             .roundToInt().coerceIn(0, height)
         return readBadgeInRegion(pixels, width, height, x0, x1, y0, y1)
     }
@@ -237,7 +238,7 @@ internal class WarsHandRecognizer(iconsText: String, digitsText: String) {
         val regionW = x1 - x0
         val regionH = y1 - y0
         val visited = BooleanArray(regionW * regionH)
-        var biggest: List<Int> = emptyList()
+        val components = ArrayList<List<Int>>()
         for (y in 0 until regionH) for (x in 0 until regionW) {
             val at = y * regionW + x
             if (visited[at] || !yellow(pixels[(y0 + y) * width + x0 + x])) continue
@@ -261,25 +262,50 @@ internal class WarsHandRecognizer(iconsText: String, digitsText: String) {
                     stack.addLast(index)
                 }
             }
-            if (component.size > biggest.size) biggest = component
+            if (component.size >= 80 &&
+                component.maxOf { it / regionW } - component.minOf { it / regionW } >= 14)
+                components.add(component)
         }
-        if (biggest.size < 80) return 1 // No multiplicity number visible.
-        val left = biggest.minOf { it % regionW }
-        val right = biggest.maxOf { it % regionW }
-        val top = biggest.minOf { it / regionW }
-        val bottom = biggest.maxOf { it / regionW }
+        if (components.isEmpty()) return 1 // No full-height multiplicity number visible.
+        // 10 has two separate components; 11 can be joined at the baseline.
+        // Merge only adjacent components on the same baseline, not the
+        // yellow decoration underneath the lower tray.
+        val biggest = components.maxBy { it.size }
+        val primaryLeft = biggest.minOf { it % regionW }
+        val primaryRight = biggest.maxOf { it % regionW }
+        val primaryTop = biggest.minOf { it / regionW }
+        val primaryBottom = biggest.maxOf { it / regionW }
+        val tolerance = max(2, (primaryBottom - primaryTop + 1) / 6)
+        val selected = components.filter { c ->
+            val l = c.minOf { it % regionW }
+            val r = c.maxOf { it % regionW }
+            val t = c.minOf { it / regionW }
+            val b = c.maxOf { it / regionW }
+            kotlin.math.abs(t - primaryTop) <= tolerance &&
+                kotlin.math.abs(b - primaryBottom) <= tolerance &&
+                max(l - primaryRight - 1, primaryLeft - r - 1) <= tolerance + 1
+        }
+        if (selected.size != components.size || selected.size > 2) return null
+        val combined = selected.flatten()
+        val left = combined.minOf { it % regionW }
+        val right = combined.maxOf { it % regionW }
+        val top = combined.minOf { it / regionW }
+        val bottom = combined.maxOf { it / regionW }
         if (right - left < 7 || bottom - top < 14) return null
+        val aspect = (right - left + 1).toDouble() / (bottom - top + 1)
+        val twoDigits = aspect > .95
+        if (aspect > 1.9 || (selected.size > 1 && !twoDigits)) return null
         val pixelsInGlyph = BooleanArray(regionW * regionH)
-        for (n in biggest) pixelsInGlyph[n] = true
+        for (n in combined) pixelsInGlyph[n] = true
         val glyph = BooleanArray(16 * 24)
         for (y in 0 until 24) for (x in 0 until 16) {
             val sx = left + x * (right - left + 1) / 16
             val sy = top + y * (bottom - top + 1) / 24
             glyph[y * 16 + x] = pixelsInGlyph[sy * regionW + sx]
         }
-        val found = match(mask(glyph, 16, 24), digits) { true } ?: return null
-        if (found.score < .80 || found.margin < .09) return null
-        return found.code.digitToInt()
+        val found = match(mask(glyph, 16, 24), digits) { (it >= 10) == twoDigits } ?: return null
+        if (found.score < (if (twoDigits) .94 else .80) || found.margin < .09) return null
+        return found.code
     }
 
     /** Known mask sample, testable without Android or the screenshot. */
