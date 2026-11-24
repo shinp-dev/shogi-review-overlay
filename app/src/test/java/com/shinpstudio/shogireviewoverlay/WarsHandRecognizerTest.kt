@@ -25,6 +25,43 @@ class WarsHandRecognizerTest {
         }
     }
 
+    @Test fun allSevenSenteHandGlyphsFromAnotherReplayFrame() {
+        val rows = File("src/test/resources/shogi_wars_hand_all_sente_heldout_v1.txt")
+            .readLines().filter { it.isNotBlank() && !it.startsWith("#") }
+        assertEquals("PLNSGBR".toSet(), rows.map { it[0] }.toSet())
+        for (line in rows) {
+            assertEquals(line[0], model.recognizeReference(line[0], line.substring(2)))
+        }
+    }
+
+    @Test fun infersUnreadableFiveOrLargePawnBadgeOnlyWhenOwnerIsKnown() {
+        for (n in listOf(5, 12, 18)) {
+            val board = makeBoard(mapOf(PieceType.PAWN to n))
+            val observed = mapOf(
+                Side.BLACK to mapOf<PieceType, Int?>(PieceType.PAWN to null)
+            )
+            assertEquals(n, model.reconcile(board, observed)?.get(Side.BLACK)?.get(PieceType.PAWN))
+        }
+    }
+
+    @Test fun rejectsAmbiguousCountsAndNeverOverridesKnownDigits() {
+        val board = makeBoard(mapOf(PieceType.PAWN to 8))
+        assertNull(model.reconcile(board, mapOf(
+            Side.BLACK to mapOf<PieceType, Int?>(PieceType.PAWN to null),
+            Side.WHITE to mapOf<PieceType, Int?>(PieceType.PAWN to null)
+        )))
+        val known = mapOf(
+            Side.BLACK to mapOf<PieceType, Int?>(PieceType.PAWN to null),
+            Side.WHITE to mapOf<PieceType, Int?>(PieceType.PAWN to 3)
+        )
+        assertEquals(5, model.reconcile(board, known)?.get(Side.BLACK)?.get(PieceType.PAWN))
+        assertNull(model.reconcile(board, mapOf(Side.BLACK to mapOf(PieceType.PAWN to 7))))
+        val one = makeBoard(mapOf(PieceType.PAWN to 1))
+        assertNull(model.reconcile(one, mapOf(
+            Side.BLACK to mapOf<PieceType, Int?>(PieceType.PAWN to null)
+        )))
+    }
+
     @Test fun acceptsFirstScreenshotEvenWhenUpperHandOrderIsBishopThenPawn() {
         // Screenshot #1: Gote B2 P3. Sente P3 L1 G1.
         val board = makeBoard(

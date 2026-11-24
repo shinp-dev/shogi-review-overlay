@@ -9,8 +9,9 @@ import kotlin.math.sqrt
  * Locates Shogi Wars' variable-position holding pieces without assuming
  * a specific left-to-right order. Uses cropped glyph masks only.
  *
- * Strict 40-piece inventory validation and actual badge digits are required.
- * Unknown pieces / digits fail closed; one-step history remains the fallback.
+ * Strict 40-piece inventory validation is required. An unreadable visible count
+ * can be recovered only when the inventory makes it unique; ambiguous icons
+ * or counts fail closed. One-step history remains the fallback.
  */
 internal class WarsHandRecognizer(iconsText: String, digitsText: String) {
     private data class Mask(val bits: BooleanArray, val axes: IntArray, val ink: Int)
@@ -21,7 +22,7 @@ internal class WarsHandRecognizer(iconsText: String, digitsText: String) {
     private val digits = load(digitsText, 16, 24) { it.toInt().also { n -> require(n in 2..18) } }
 
     init {
-        require("bpPLG".all { it in icons })
+        require("bpPLNSGBR".all { it in icons })
         require(2 in digits && 3 in digits)
     }
 
@@ -121,8 +122,11 @@ internal class WarsHandRecognizer(iconsText: String, digitsText: String) {
         val cellW = boardW / 9f
         val cellH = boardH / 9f
         val startX = if (side == Side.WHITE) boardLeft + .62f * boardW
-                     else boardLeft + .01f * boardW
-        val x = startX + (if (side == Side.WHITE) -index else index) * cellW
+                     else boardLeft + .004f * boardW
+        // The lower tray pitch is slightly narrower than a board cell.
+        // The seventh icon otherwise overlaps the player's avatar.
+        val pitch = if (side == Side.WHITE) cellW else .975f * cellW
+        val x = startX + (if (side == Side.WHITE) -index else index) * pitch
         val y = if (side == Side.WHITE) boardTop - 1.32f * cellH
                 else boardTop + boardH + .30f * cellH
         return Rect(
@@ -320,12 +324,13 @@ internal class WarsHandRecognizer(iconsText: String, digitsText: String) {
     }
 
     /**
-     * Exact inventory reconciliation. A single holder's count is verified by
-     * the physical badge (or a missing badge for one); if two sides share a
-     * type, both badges must be recognized before division.
+     * Exact inventory reconciliation. A null value means an identified
+     * holding icon with a visible but unreadable count, not a missing icon.
+     * Recover at most one unknown holder per type using the physical inventory.
+     * Never change a confidently read count or invent an owner.
      */
     internal fun reconcile(
-        board: List<Piece?>, observed: Map<Side, Map<PieceType, Int>>
+        board: List<Piece?>, observed: Map<Side, Map<PieceType, Int?>>
     ): Map<Side, Map<PieceType, Int>>? {
         if (board.size != 81) return null
         val expected = mapOf(
@@ -334,14 +339,33 @@ internal class WarsHandRecognizer(iconsText: String, digitsText: String) {
             PieceType.GOLD to 4, PieceType.BISHOP to 2,
             PieceType.ROOK to 2, PieceType.KING to 2
         )
+        val result = Side.entries.associateWith { mutableMapOf<PieceType, Int>() }
         for ((type, total) in expected) {
             val remain = total - board.count { it?.type == type }
             if (remain < 0) return null
-            val held = Side.entries.sumOf { observed[it]?.get(type) ?: 0 }
-            if (held != remain) return null
-            if (type == PieceType.KING && held != 0) return null
+            val owners = Side.entries.filter { observed[it]?.containsKey(type) == true }
+            if (type == PieceType.KING && owners.isNotEmpty()) return null
+            var known = 0
+            val unknown = mutableListOf<Side>()
+            for (owner in owners) {
+                val count = observed.getValue(owner)[type]
+                if (count == null) {
+                    unknown.add(owner)
+                } else {
+                    if (count !in 1..total) return null
+                    known += count
+                    result.getValue(owner)[type] = count
+                }
+            }
+            if (unknown.isEmpty()) {
+                if (known != remain) return null
+            } else if (unknown.size == 1) {
+                val inferred = remain - known
+                // A visible unreadable numeral must represent two or more.
+                if (inferred !in 2..total) return null
+                result.getValue(unknown.single())[type] = inferred
+            } else return null
         }
-        val result = observed.mapValues { (_, types) -> types.filterValues { it > 0 } }
         return result.takeIf {
             ReviewStateTracker.inventoryIsValid(ShogiPosition(board, Side.BLACK, it, 1))
         }
@@ -355,15 +379,15 @@ internal class WarsHandRecognizer(iconsText: String, digitsText: String) {
         if (width <= 0 || height <= 0 || pixels.size < width * height || board.size != 81)
             return null
         val observed = mutableMapOf(
-            Side.WHITE to mutableMapOf<PieceType, Int>(),
-            Side.BLACK to mutableMapOf<PieceType, Int>()
+            Side.WHITE to mutableMapOf<PieceType, Int?>(),
+            Side.BLACK to mutableMapOf<PieceType, Int?>()
         )
         for (side in listOf(Side.WHITE, Side.BLACK)) {
             val found = locate(pixels, width, height, boardLeft, boardTop,
                 boardWidth, boardHeight, side) ?: return null
             for (piece in found) {
                 val type = PieceType.fromSfen(piece.code)
-                val count = badgeCount(pixels, width, height, piece.rect, side) ?: return null
+                val count = badgeCount(pixels, width, height, piece.rect, side)
                 // The UI renders one icon per held type, with a number if >1.
                 if (type in observed.getValue(side)) return null
                 observed.getValue(side)[type] = count
