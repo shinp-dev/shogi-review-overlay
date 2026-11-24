@@ -29,6 +29,19 @@ class ReviewCaptureService : Service() {
         const val EXTRA_DATA = "projection_data"
         private const val CHANNEL = "shogi_capture"
         private const val NOTIFICATION_ID = 311
+        @Volatile private var running: ReviewCaptureService? = null
+        fun requestScan(): Boolean {
+            val service = running ?: return false
+            if (service.stopped) return false
+            service.forceScan.set(true)
+            service.main.post {
+                if (!service.stopped && !service.busy.get()) {
+                    service.main.removeCallbacks(service.nextCapture)
+                    service.main.post(service.nextCapture)
+                }
+            }
+            return true
+        }
     }
 
     private lateinit var reader: ImageReader
@@ -37,6 +50,13 @@ class ReviewCaptureService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private val work = Executors.newSingleThreadExecutor()
     private val busy = AtomicBoolean(false)
+    private val forceScan = AtomicBoolean(false)
+    @Volatile private var stopped = false
+    private var overlayEpoch = 0L
+
+    private fun sendOverlay(intent: Intent) {
+        if (!stopped) OverlayService.deliver(intent, overlayEpoch)
+    }
     private val pendingFrame = Runnable { grabFrame() }
     private var activeTarget: ReviewTarget? = null
     private var lastSfen = ""
@@ -88,6 +108,8 @@ class ReviewCaptureService : Service() {
             val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
             val token = manager.getMediaProjection(code, data)
             projection = token
+            overlayEpoch = OverlayService.sessionEpoch()
+            running = this
             token.registerCallback(object : MediaProjection.Callback() {
                 override fun onStop() { main.post { stopSelf() } }
             }, main)
@@ -123,7 +145,7 @@ class ReviewCaptureService : Service() {
 
     private fun finishOverlayCapture() {
         try {
-            startService(Intent(this, OverlayService::class.java).apply {
+            sendOverlay(Intent(this, OverlayService::class.java).apply {
                 action = OverlayService.ACTION_FINISH_CAPTURE
             })
         } catch (error: Exception) {
@@ -136,6 +158,11 @@ class ReviewCaptureService : Service() {
     }
 
     private fun grabFrame() {
+        if (stopped || OverlayService.isCalibrating()) {
+            finishOverlayCapture()
+            busy.set(false)
+            return
+        }
         val image = try { reader.acquireLatestImage() } catch (_: Exception) { null }
         if (image == null) {
             finishOverlayCapture()
@@ -166,13 +193,17 @@ class ReviewCaptureService : Service() {
 
     private val nextCapture = object : Runnable {
         override fun run() {
-            if (projection == null) return
+            if (projection == null || stopped) return
+            if (OverlayService.isCalibrating()) {
+                main.postDelayed(this, 4500)
+                return
+            }
             if (busy.compareAndSet(false, true) && ::reader.isInitialized) {
                 // Give the display time to redraw without the arrows and
                 // labels. Keep any pending frame for a static board, where
                 // hiding empty candidates might not produce a new image.
                 try {
-                    startService(Intent(this@ReviewCaptureService, OverlayService::class.java).apply {
+                    sendOverlay(Intent(this@ReviewCaptureService, OverlayService::class.java).apply {
                         action = OverlayService.ACTION_PREPARE_CAPTURE
                     })
                 } catch (error: Exception) {
@@ -201,6 +232,13 @@ class ReviewCaptureService : Service() {
     }
 
     private fun scan(bitmap: Bitmap) {
+        if (stopped || OverlayService.isCalibrating()) return
+        if (forceScan.getAndSet(false)) {
+            lastSfen = ""
+            lastBoardSignature = 0L
+            lastRejectedSignature = 0L
+            lastRejectedAt = 0L
+        }
         val selected = OverlaySettings.target(this)
         if (activeTarget != selected) {
             // Captured state, inventory history, alignment and move count must
@@ -211,7 +249,7 @@ class ReviewCaptureService : Service() {
             lastRejectedSignature = 0L
             lastRejectedAt = 0L
             lastState = null
-            startService(Intent(this, OverlayService::class.java).apply {
+            sendOverlay(Intent(this, OverlayService::class.java).apply {
                 action = OverlayService.ACTION_CLEAR
             })
         }
@@ -236,7 +274,7 @@ class ReviewCaptureService : Service() {
         if (position == null) {
             lastRejectedSignature = hash
             lastRejectedAt = SystemClock.elapsedRealtime()
-            startService(Intent(this, OverlayService::class.java).apply {
+            sendOverlay(Intent(this, OverlayService::class.java).apply {
                 action = OverlayService.ACTION_CLEAR
             })
             return
@@ -246,7 +284,7 @@ class ReviewCaptureService : Service() {
         // arrows aligned without restarting the engine on the same position.
         if (sfen == lastSfen) {
             OverlaySettings.saveAlignment(this, state.offsetX, state.offsetY)
-            startService(Intent(this, OverlayService::class.java).apply {
+            sendOverlay(Intent(this, OverlayService::class.java).apply {
                 action = OverlayService.ACTION_REFRESH
             })
             lastBoardSignature = hash
@@ -263,9 +301,11 @@ class ReviewCaptureService : Service() {
                 putStringArrayListExtra("labels", ArrayList(values.map { it.label }))
                 putExtra("scores", values.map { it.score }.toIntArray())
             }
+            // Do not publish work that finished after Exit or during calibration.
+            if (stopped || overlayEpoch != OverlayService.sessionEpoch() || OverlayService.isCalibrating()) return
             // Only accepted, engine-validated positions may move the overlay.
             OverlaySettings.saveAlignment(this, state.offsetX, state.offsetY)
-            startService(updated)
+            sendOverlay(updated)
             lastSfen = sfen
             lastBoardSignature = hash
             lastState = position
@@ -274,7 +314,7 @@ class ReviewCaptureService : Service() {
         } catch (error: Exception) {
             lastRejectedSignature = hash
             lastRejectedAt = SystemClock.elapsedRealtime()
-            startService(Intent(this, OverlayService::class.java).apply {
+            sendOverlay(Intent(this, OverlayService::class.java).apply {
                 action = OverlayService.ACTION_CLEAR
             })
             saveStatus("エンジン解析失敗: " + error.message)
@@ -282,10 +322,17 @@ class ReviewCaptureService : Service() {
     }
 
     private fun saveStatus(text: String) {
+        if (stopped || overlayEpoch != OverlayService.sessionEpoch()) return
         OverlaySettings.preferences(this).edit().putString("last_auto_status", text).apply()
+        sendOverlay(Intent(this, OverlayService::class.java).apply {
+            action = OverlayService.ACTION_STATUS
+            putExtra("message", text)
+        })
     }
 
     override fun onDestroy() {
+        stopped = true
+        if (running === this) running = null
         main.removeCallbacks(nextCapture)
         main.removeCallbacks(pendingFrame)
         virtualDisplay?.release()
@@ -293,7 +340,9 @@ class ReviewCaptureService : Service() {
         if (::reader.isInitialized) reader.close()
         if (::recognizer.isInitialized) recognizer.close()
         work.shutdownNow()
-        finishOverlayCapture()
+        OverlayService.deliver(Intent(this, OverlayService::class.java).apply {
+            action = OverlayService.ACTION_FINISH_CAPTURE
+        }, overlayEpoch)
         super.onDestroy()
     }
 }

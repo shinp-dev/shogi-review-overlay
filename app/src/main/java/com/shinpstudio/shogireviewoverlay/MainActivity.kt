@@ -82,8 +82,7 @@ class MainActivity : Activity() {
                 if (selected != OverlaySettings.target(this@MainActivity)) {
                     OverlaySettings.setTarget(this@MainActivity, selected)
                     // Never transfer a Wars capture / candidate position to Quest.
-                    stopService(Intent(this@MainActivity, ReviewCaptureService::class.java))
-                    stopService(Intent(this@MainActivity, OverlayService::class.java))
+                    OverlayService.stopAll(this@MainActivity)
                     if (::status.isInitialized)
                         status.text = "対象アプリを切り替えました。枠を調整し、画面共有から再開してください。"
                 }
@@ -236,7 +235,7 @@ class MainActivity : Activity() {
 
         button("④ 候補を計算・オーバーレイに表示") { calculateAndShow() }
         button("オーバーレイ停止") {
-            stopService(Intent(this, OverlayService::class.java))
+            OverlayService.stopAll(this)
             status.text = "オーバーレイを停止しました"
         }
         status = text(prefs.getString("last_auto_status", "未解析。画面取得またはSFEN入力で開始してください") ?: "未解析", 14f)
@@ -304,7 +303,9 @@ class MainActivity : Activity() {
     }
 
     private fun refreshOverlay() {
-        if (Settings.canDrawOverlays(this)) startOverlay(OverlayService.ACTION_REFRESH)
+        if (Settings.canDrawOverlays(this)) OverlayService.deliver(
+            Intent(this, OverlayService::class.java).apply { action = OverlayService.ACTION_REFRESH }
+        )
     }
 
     private fun calculateAndShow() {
@@ -316,21 +317,25 @@ class MainActivity : Activity() {
             return
         }
         OverlaySettings.preferences(this).edit().putString("sfen", text).apply()
+        if (!startOverlay(OverlayService.ACTION_START_REVIEW)) return
+        val session = OverlayService.sessionEpoch()
         status.text = "やねうら王で探索中..."
         val count = OverlaySettings.count(this)
         Thread {
             try {
                 val candidates = UsiEngine(this).analyze(text, position, count, OverlaySettings.preferences(this).getInt("think_ms", 1200))
                 runOnUiThread {
+                    if (session != OverlayService.sessionEpoch()) return@runOnUiThread
                     if (candidates.isEmpty()) {
                         status.text = "合法手がありません。王手・終局を確認してください。"
                         return@runOnUiThread
                     }
-                    startOverlay(OverlayService.ACTION_UPDATE) {
+                    OverlayService.deliver(Intent(this, OverlayService::class.java).apply {
+                        action = OverlayService.ACTION_UPDATE
                         putStringArrayListExtra("moves", ArrayList(candidates.map { it.move.usi() }))
                         putStringArrayListExtra("labels", ArrayList(candidates.map { it.label }))
                         putExtra("scores", candidates.map { it.score }.toIntArray())
-                    }
+                    }, session)
                     status.text = "やねうら王Material評価値\n" +
                         candidates.mapIndexed { i, candidate ->
                             (i + 1).toString() + ". " + candidate.label +

@@ -74,15 +74,17 @@ class BoardCalibrationView(
         canvas.drawText("右下の丸で拡大・縮小", hint.left + dp(7f), hint.top + dp(35f), paint)
     }
 
+    fun finish() {
+        if (initialized) OverlaySettings.saveBoard(context, BoardRect.fromPixels(box, width, height))
+        onDone()
+    }
+
     override fun onTouchEvent(event: MotionEvent): Boolean {
         if (!initialized) return true
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
                 if (doneRect().contains(event.x, event.y)) {
-                    OverlaySettings.saveBoard(
-                        context, BoardRect.fromPixels(box, width, height)
-                    )
-                    post { onDone() }
+                    post { finish() }
                     return true
                 }
                 lastX = event.x
