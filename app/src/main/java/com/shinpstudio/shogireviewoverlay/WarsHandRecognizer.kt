@@ -215,16 +215,21 @@ internal class WarsHandRecognizer(iconsText: String, digitsText: String) {
 
     private fun badgeCount(
         pixels: IntArray, width: Int, height: Int, rect: Rect, side: Side
+    ): Int? = readBadgeForIcon(pixels, width, height, rect.x, rect.y, rect.w, rect.h, side)
+
+    /** Both trays use the same upright yellow glyphs and numeric templates.
+     * Only the vertical search window is different. Never rotate the digits.
+     * A clipped window is unknown rather than proof of a missing badge.
+     */
+    internal fun readBadgeForIcon(
+        pixels: IntArray, width: Int, height: Int,
+        x: Int, y: Int, w: Int, h: Int, side: Side
     ): Int? {
-        // Wars has pale-yellow counts on the *right* of an icon, in contrast
-        // to Quest's red counts. The upper count sits lower, the lower count
-        // sits just above the icon's right shoulder.
-        val x0 = (rect.x + .43f * rect.w).roundToInt().coerceIn(0, width)
-        val x1 = (rect.x + 1.32f * rect.w).roundToInt().coerceIn(0, width)
-        val y0 = (rect.y + (if (side == Side.WHITE) .33f else -.30f) * rect.h)
-            .roundToInt().coerceIn(0, height)
-        val y1 = (rect.y + (if (side == Side.WHITE) 1.20f else .33f) * rect.h)
-            .roundToInt().coerceIn(0, height)
+        if (w <= 0 || h <= 0) return null
+        val x0 = (x + .43f * w).roundToInt()
+        val x1 = (x + 1.32f * w).roundToInt()
+        val y0 = (y + (if (side == Side.WHITE) .33f else -.30f) * h).roundToInt()
+        val y1 = (y + (if (side == Side.WHITE) 1.20f else .33f) * h).roundToInt()
         return readBadgeInRegion(pixels, width, height, x0, x1, y0, y1)
     }
 

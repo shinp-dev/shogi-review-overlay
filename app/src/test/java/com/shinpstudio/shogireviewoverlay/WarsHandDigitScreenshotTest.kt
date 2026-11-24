@@ -64,6 +64,46 @@ class WarsHandDigitScreenshotTest {
         }
     }
 
+    @Test fun sameUprightBadgeMasksWorkInBothTraySearchWindows() {
+        // Real lower-tray glyph pixels, synthetically moved to the upper
+        // tray. This is a placement test, not an actual upper-tray photo.
+        val masks = GZIPInputStream(ByteArrayInputStream(Base64.getDecoder().decode(
+            File("src/test/resources/wars-yellow-count-6to11.b64").readText().trim()
+        ))).use { it.readBytes() }
+        val sourceW = 56
+        val sourceH = 44
+        val expected = listOf(6, 7, 8, 9, 10, 11, 2)
+        val width = 200
+        val height = 240
+        for ((index, number) in expected.withIndex()) {
+            val points = (0 until sourceW * sourceH).filter { i ->
+                val bit = index * sourceW * sourceH + i
+                (masks[bit / 8].toInt() and (1 shl (7 - bit % 8))) != 0
+            }
+            val left = points.minOf { it % sourceW }
+            val top = points.minOf { it / sourceW }
+            for (side in Side.entries) {
+                val pixels = IntArray(width * height) { 0xFF121212.toInt() }
+                val targetY = if (side == Side.WHITE) 125 else 67
+                for (p in points) {
+                    val x = 75 + p % sourceW - left
+                    val y = targetY + p / sourceW - top
+                    pixels[y * width + x] = 0xFFFFEA78.toInt()
+                }
+                assertEquals("$side badge $number", number,
+                    recognizer.readBadgeForIcon(pixels, width, height, 40, 80, 60, 76, side))
+            }
+        }
+    }
+
+    @Test fun clippedIconBadgeWindowIsUnknownNotOne() {
+        val pixels = IntArray(200 * 240) { 0xFF121212.toInt() }
+        for (side in Side.entries) {
+            assertEquals(1, recognizer.readBadgeForIcon(pixels, 200, 240, 40, 80, 60, 76, side))
+            assertNull(recognizer.readBadgeForIcon(pixels, 200, 240, 155, 80, 60, 76, side))
+        }
+    }
+
     @Test fun noBadgeMeansOneButOutOfFrameIsRejected() {
         val width = 40
         val height = 67
