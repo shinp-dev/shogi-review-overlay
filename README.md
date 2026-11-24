@@ -26,14 +26,17 @@
 詳しくは docs/ENGINE.md と docs/RECOGNITION.md を参照。
 
 ## ビルド
-JDK 17・Android SDK API 35・Gradle 8.9、Native版をビルドする場合はAndroid NDK r23bが必要です。GitHub Actionsは同梱まで実施します。
+JDK 17・Git・Android SDK API 35 が必要です。Windows/Linuxとも Gradle Wrapper (8.9) でビルドできます。Android SDKの利用許諾は事前に済ませてください。Gradleが必要なNDK r23bと固定リビジョンのやねうら王を自動取得し、MaterialLv1 ARM64実行ファイルをビルド・検証して同梱します。外部モデル、WSL、手動のネイティブビルドは不要です。WindowsではNDKの制約上、スペースのないSDK・リポジトリパスを推奨します。
 
-```bash
-gradle :app:assembleDebug
-gradle :app:testDebugUnitTest
+Windowsで実機にインストール:
+
+```bat
+gradlew.bat :app:installDebug
 ```
 
-成果物は `app/build/outputs/apk/debug/app-debug.apk`。
+Linuxでは `./gradlew :app:installDebug`。APKのみ生成する場合は `:app:assembleDebug`、単体テストは `:app:testDebugUnitTest`。初回はダウンロードとC++ビルドが発生し、2回目以降は検証済みの実行ファイルを再利用します。エンジンが生成・検証できない場合はビルドを中止します。
+
+成果物は `app/build/outputs/apk/debug/app-debug.apk`。GitHub ActionsではWindows/LinuxのクリーンビルドとAPK内エンジンの検証を行います。
 
 ## 使い方
 

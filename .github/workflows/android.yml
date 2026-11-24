@@ -4,7 +4,12 @@ on:
   pull_request:
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
     permissions:
       contents: read
     steps:
@@ -13,64 +18,37 @@ jobs:
         with:
           distribution: temurin
           java-version: '17'
-      - uses: gradle/actions/setup-gradle@v4
-        with:
-          gradle-version: '8.9'
-      - name: Android SDK 35
+      - uses: android-actions/setup-android@v3
+      - name: Android SDK 35 (Linux)
+        if: runner.os == 'Linux'
+        run: sdkmanager "platforms;android-35" "build-tools;35.0.0"
+      - name: Android SDK 35 (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: sdkmanager.bat "platforms;android-35" "build-tools;35.0.0"
+      - name: Build and test fresh checkout (Linux)
+        if: runner.os == 'Linux'
+        run: ./gradlew --no-daemon :app:assembleDebug :app:testDebugUnitTest
+      - name: Build and test fresh checkout (Windows)
+        if: runner.os == 'Windows'
+        shell: cmd
+        run: gradlew.bat --no-daemon :app:assembleDebug :app:testDebugUnitTest
+      - name: Verify native executable in APK
+        shell: bash
         run: |
-          SDK_HOME="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
-          SDKMANAGER="$(find "$SDK_HOME/cmdline-tools" -type f -name sdkmanager | sort -V | tail -n 1)"
-          test -n "$SDKMANAGER"
-          yes | "$SDKMANAGER" --licenses >/dev/null || true
-          "$SDKMANAGER" "platforms;android-35" "build-tools;35.0.0"
-      - name: Cache native YaneuraOu material engine
-        id: engine-cache
-        uses: actions/cache@v4
-        with:
-          path: app/src/main/jniLibs/arm64-v8a/libshogi_engine.so
-          key: yaneuraou-material-arm64-3bd5141-ndkr23b-v1
-      - name: Setup Android NDK
-        if: steps.engine-cache.outputs.cache-hit != 'true'
-        uses: nttld/setup-ndk@v1
-        with:
-          ndk-version: r23b
-      - name: Compile YaneuraOu Material for arm64-v8a
-        if: steps.engine-cache.outputs.cache-hit != 'true'
-        run: |
-          mkdir -p upstream/YaneuraOu
-          git -C upstream/YaneuraOu init
-          git -C upstream/YaneuraOu remote add origin https://github.com/yaneurao/YaneuraOu.git
-          git -C upstream/YaneuraOu fetch --depth 1 origin 3bd5141dfd50b3fc6abd9a9db7561d9338a883d0
-          git -C upstream/YaneuraOu checkout --detach FETCH_HEAD
-          cd upstream/YaneuraOu
-          echo "YaneuraOu source commit: $(git rev-parse HEAD)"
-          bash tools/build/android_build.sh -e YANEURAOU_ENGINE_MATERIAL -x 'APP_ABI=arm64-v8a'
-          find build/android/MaterialLv1 -type f | head -30
-          ENGINE=$(find build/android/MaterialLv1 -type f -name '*arm64-v8a' ! -name '*.log' | head -n 1)
-          test -n "$ENGINE"
-          file "$ENGINE"
-          test -s "$ENGINE"
-          mkdir -p ../../app/src/main/jniLibs/arm64-v8a
-          cp "$ENGINE" ../../app/src/main/jniLibs/arm64-v8a/libshogi_engine.so
-      - name: Unit tests
-        run: gradle --no-daemon :app:testDebugUnitTest
-      - name: Print failed unit-test details
-        if: failure()
-        run: |
-          python3 - <<'PY'
+          python - <<'PY'
           from pathlib import Path
-          import xml.etree.ElementTree as ET
-          for path in sorted(Path("app/build/test-results/testDebugUnitTest").glob("TEST-*.xml")):
-              root = ET.parse(path).getroot()
-              for case in root.iter("testcase"):
-                  for failure in case.findall("failure"):
-                      print("FAILED:", case.attrib.get("classname"), case.attrib.get("name"))
-                      print(failure.attrib.get("message", ""))
-                      print((failure.text or "")[:2500])
+          from zipfile import ZipFile
+          import hashlib
+          native = Path("app/src/main/jniLibs/arm64-v8a/libshogi_engine.so")
+          with ZipFile("app/build/outputs/apk/debug/app-debug.apk") as apk:
+              engine = apk.read("lib/arm64-v8a/libshogi_engine.so")
+              assert engine[:6] == bytes([127, 69, 76, 70, 2, 1])
+              assert engine[16:20] == bytes([3, 0, 183, 0])
+              assert hashlib.sha256(engine).digest() == hashlib.sha256(native.read_bytes()).digest()
           PY
-      - name: Debug APK
-        run: gradle --no-daemon :app:assembleDebug
       - uses: actions/upload-artifact@v4
+        if: success()
         with:
-          name: shogi-overlay-debug-apk
+          name: ${{ runner.os == 'Linux' && 'shogi-overlay-debug-apk' || 'shogi-overlay-windows-debug-apk' }}
           path: app/build/outputs/apk/debug/app-debug.apk

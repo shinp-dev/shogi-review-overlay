@@ -6,7 +6,7 @@
 Android ABI: arm64-v8a / NDK r23b
 ライセンス: GPL-3.0 (LICENSE-GPL-3.0)
 
-CIで上流ソースからPIE実行ファイルを生成し、APKの lib/arm64-v8a/libshogi_engine.so に格納する。これはJNIライブラリではなく、拡張子を.soにしてNative Libraryディレクトリへ展開する実行形式。
+Gradleの prepareYaneuraOu タスクで固定リビジョンの上流ソースを取得し、NDK r23bのndk-buildでPIE実行ファイルを生成し、APKの lib/arm64-v8a/libshogi_engine.so に格納する。これはJNIライブラリではなく、拡張子を.soにしてNative Libraryディレクトリへ展開する実行形式。
 
 UsiEngine.ktは ProcessBuilder で起動し、usi、setoption MultiPV=1..3、isready、position sfen、go movetime を送る。結果の1手目は合法手として検証して描画に渡す。
 

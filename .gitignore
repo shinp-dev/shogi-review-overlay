@@ -5,3 +5,7 @@ local.properties
 **/build/
 .DS_Store
 captures/
+
+.native-build/
+app/src/main/jniLibs/arm64-v8a/libshogi_engine.so
+app/src/main/jniLibs/arm64-v8a/*.partial
