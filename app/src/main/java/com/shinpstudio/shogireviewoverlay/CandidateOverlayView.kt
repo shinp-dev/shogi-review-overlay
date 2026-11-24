@@ -19,6 +19,13 @@ data class OverlayCandidate(val move: ShogiMove, val label: String, val score: I
 class CandidateOverlayView(context: Context) : View(context) {
     private var candidates: List<OverlayCandidate> = emptyList()
     private var diagnostic = false
+    private var capturingFrame = false
+
+    fun setCapturingFrame(active: Boolean) {
+        if (capturingFrame == active) return
+        capturingFrame = active
+        invalidate()
+    }
 
     fun setDiagnostic(enabled: Boolean) {
         diagnostic = enabled
@@ -191,9 +198,8 @@ class CandidateOverlayView(context: Context) : View(context) {
     }
 
     private fun drawBoardFrame(canvas: Canvas, board: RectF) {
-        // Match the green frame used in board calibration, including when no
-        // engine candidates are available. Only the temporary capture-hide
-        // and explicit overlay stop actions may hide this frame.
+        // Keep the outline on the board perimeter. Recognition samples the
+        // interior of each square and the holding trays outside the board.
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = dp(2.2f)
         paint.color = 0xFF40E080.toInt()
@@ -205,13 +211,13 @@ class CandidateOverlayView(context: Context) : View(context) {
         super.onDraw(canvas)
         if (width <= 0 || height <= 0) return
         val board = OverlaySettings.displayBoard(context, width, height)
-        if (candidates.isNotEmpty()) {
+        if (!capturingFrame && candidates.isNotEmpty()) {
             drawHeader(canvas, board)
             candidates.forEachIndexed { i, entry -> drawCandidate(canvas, board, i, entry) }
             drawPanel(canvas, board)
         }
         drawBoardFrame(canvas, board)
-        if (diagnostic) {
+        if (diagnostic && !capturingFrame) {
             // Diagnostic mode separates WindowManager visibility from board
             // recognition. This banner must appear even with zero moves.
             val top = (board.top - dp(36f)).coerceAtLeast(dp(2f))

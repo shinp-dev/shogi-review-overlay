@@ -37,6 +37,7 @@ class ReviewCaptureService : Service() {
     private val main = Handler(Looper.getMainLooper())
     private val work = Executors.newSingleThreadExecutor()
     private val busy = AtomicBoolean(false)
+    private val pendingFrame = Runnable { grabFrame() }
     private var activeTarget: ReviewTarget? = null
     private var lastSfen = ""
     private var lastBoardSignature = 0L
@@ -120,24 +121,24 @@ class ReviewCaptureService : Service() {
             .apply()
     }
 
-    private fun restoreOverlay() {
+    private fun finishOverlayCapture() {
         try {
             startService(Intent(this, OverlayService::class.java).apply {
-                action = OverlayService.ACTION_RESUME
+                action = OverlayService.ACTION_FINISH_CAPTURE
             })
         } catch (error: Exception) {
             // Android may reject a background service start if the overlay
             // service was killed while MediaProjection continued capturing.
             // Never swallow this: the user otherwise sees no border and no
             // indication of why it disappeared.
-            reportOverlayFailure("画面取得後の枠の復帰に失敗", error)
+            reportOverlayFailure("画面取得後の候補表示の復帰に失敗", error)
         }
     }
 
     private fun grabFrame() {
         val image = try { reader.acquireLatestImage() } catch (_: Exception) { null }
         if (image == null) {
-            restoreOverlay()
+            finishOverlayCapture()
             busy.set(false)
             return
         }
@@ -147,8 +148,7 @@ class ReviewCaptureService : Service() {
             val raw = Bitmap.createBitmap(rowPixels, image.height, Bitmap.Config.ARGB_8888)
             raw.copyPixelsFromBuffer(p.buffer)
             val bitmap = Bitmap.createBitmap(raw, 0, 0, image.width, image.height)
-            raw.recycle()
-            restoreOverlay()
+            if (bitmap !== raw) raw.recycle()
             work.execute {
                 try { scan(bitmap) } finally {
                     bitmap.recycle()
@@ -156,11 +156,11 @@ class ReviewCaptureService : Service() {
                 }
             }
         } catch (exception: Exception) {
-            restoreOverlay()
             busy.set(false)
             saveStatus("画面の読み取りに失敗: " + exception.message)
         } finally {
             image.close()
+            finishOverlayCapture()
         }
     }
 
@@ -168,17 +168,17 @@ class ReviewCaptureService : Service() {
         override fun run() {
             if (projection == null) return
             if (busy.compareAndSet(false, true) && ::reader.isInitialized) {
-                // Drop the previous frame before hiding overlay; the next frame
-                // must be taken *after* the overlay has disappeared.
-                try { reader.acquireLatestImage()?.close() } catch (_: Exception) {}
+                // Give the display time to redraw without the arrows and
+                // labels. Keep any pending frame for a static board, where
+                // hiding empty candidates might not produce a new image.
                 try {
                     startService(Intent(this@ReviewCaptureService, OverlayService::class.java).apply {
-                        action = OverlayService.ACTION_HIDE
+                        action = OverlayService.ACTION_PREPARE_CAPTURE
                     })
                 } catch (error: Exception) {
-                    reportOverlayFailure("画面取得前の枠の一時非表示に失敗", error)
+                    reportOverlayFailure("画面取得前の候補の一時非表示に失敗", error)
                 }
-                main.postDelayed({ grabFrame() }, 350)
+                main.postDelayed(pendingFrame, 350)
             }
             main.postDelayed(this, 4500)
         }
@@ -287,12 +287,13 @@ class ReviewCaptureService : Service() {
 
     override fun onDestroy() {
         main.removeCallbacks(nextCapture)
+        main.removeCallbacks(pendingFrame)
         virtualDisplay?.release()
         projection?.stop()
         if (::reader.isInitialized) reader.close()
         if (::recognizer.isInitialized) recognizer.close()
         work.shutdownNow()
-        restoreOverlay()
+        finishOverlayCapture()
         super.onDestroy()
     }
 }

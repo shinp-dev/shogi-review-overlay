@@ -117,8 +117,10 @@ class MainActivity : Activity() {
         content.addView(text("初回は①で権限を許可し、「枠だけ表示」で動作確認。" +
             "手動の盤面位置調整は必須ではなく、対象ごとに初期位置があります。", 13f))
         button("② 盤面位置を調整（完了ボタンで戻る）") {
-            startOverlay(OverlayService.ACTION_CALIBRATE)
-            Toast.makeText(this, "対象アプリの振り返り画面に切り替え、枠を合わせて「完了」", Toast.LENGTH_LONG).show()
+            if (startOverlay(OverlayService.ACTION_CALIBRATE)) {
+                stopService(Intent(this, ReviewCaptureService::class.java))
+                Toast.makeText(this, "対象アプリの振り返り画面に切り替え、枠を合わせて「完了」", Toast.LENGTH_LONG).show()
+            }
         }
 
         val cropLabel = text("枠線の除外: 外周8%（盤面の線を含めない）", 14f)
@@ -259,7 +261,7 @@ class MainActivity : Activity() {
             putExtra(ReviewCaptureService.EXTRA_DATA, data)
         }
         try {
-            if (!startOverlay(OverlayService.ACTION_REFRESH)) return
+            if (!startOverlay(OverlayService.ACTION_START_REVIEW)) return
             startForegroundService(intent)
             status.text = "認識を開始しました。選択したアプリの対局後振り返りへ切り替えてください"
         } catch (e: Exception) {

@@ -21,8 +21,9 @@ class OverlayService : Service() {
         const val ACTION_REFRESH = "overlay.REFRESH"
         const val ACTION_CALIBRATE = "overlay.CALIBRATE"
         const val ACTION_STOP = "overlay.STOP"
-        const val ACTION_HIDE = "overlay.HIDE"
-        const val ACTION_RESUME = "overlay.RESUME"
+        const val ACTION_START_REVIEW = "overlay.START_REVIEW"
+        const val ACTION_PREPARE_CAPTURE = "overlay.PREPARE_CAPTURE"
+        const val ACTION_FINISH_CAPTURE = "overlay.FINISH_CAPTURE"
         const val ACTION_CLEAR = "overlay.CLEAR"
         const val ACTION_TEST = "overlay.TEST"
         private const val NOTIFICATION_ID = 310
@@ -33,7 +34,7 @@ class OverlayService : Service() {
     private var overlayView: View? = null
     private var values: List<OverlayCandidate> = emptyList()
     private var calibrating = false
-    private var temporarilyHidden = false
+    private var capturingFrame = false
     private var diagnostic = false
     private var hasWindowError = false
 
@@ -89,21 +90,23 @@ class OverlayService : Service() {
         }
 
         when (intent?.action) {
-            ACTION_HIDE -> {
-                temporarilyHidden = true
-                overlayView?.visibility = View.INVISIBLE
+            ACTION_PREPARE_CAPTURE -> {
+                capturingFrame = true
+                (overlayView as? CandidateOverlayView)?.setCapturingFrame(true)
             }
-            ACTION_RESUME -> {
-                // A background restart can recreate the service without
-                // restoring its old WindowManager view. Simply setting
-                // visibility on a null view leaves the overlay absent forever.
-                temporarilyHidden = false
-                if (!calibrating) showPassive() else overlayView?.visibility = View.VISIBLE
+            ACTION_FINISH_CAPTURE -> {
+                capturingFrame = false
+                // Also recreates the frame if the service lost its window.
+                if (!calibrating) showPassive()
+            }
+            ACTION_START_REVIEW -> {
+                values = emptyList()
+                diagnostic = false
+                showPassive()
             }
             ACTION_TEST -> {
                 values = emptyList() // Display test must be independent of stale engine candidates.
                 diagnostic = true
-                temporarilyHidden = false
                 showPassive()
             }
             ACTION_CLEAR -> { values = emptyList(); if (!calibrating) showPassive() }
@@ -200,23 +203,21 @@ class OverlayService : Service() {
             // window when Android briefly suspends our background service.
             existing.setCandidates(values)
             existing.setDiagnostic(diagnostic)
-            existing.visibility = if (temporarilyHidden) View.INVISIBLE else View.VISIBLE
-            existing.invalidate()
-            if (!temporarilyHidden) publishStatus("枠のウィンドウ維持中（表示許可あり）")
+            existing.setCapturingFrame(capturingFrame)
+            publishStatus("枠のウィンドウ維持中（表示許可あり）")
             return
         }
         clearView()
         val view = CandidateOverlayView(this).apply {
             setCandidates(values)
             setDiagnostic(diagnostic)
-            visibility = if (temporarilyHidden) View.INVISIBLE else View.VISIBLE
+            setCapturingFrame(capturingFrame)
         }
         addWindow(view, passiveParams())
     }
 
     private fun showCalibration() {
         calibrating = true
-        temporarilyHidden = false
         clearView()
         val view = BoardCalibrationView(this) {
             calibrating = false
