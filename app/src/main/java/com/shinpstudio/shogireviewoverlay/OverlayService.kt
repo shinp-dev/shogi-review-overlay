@@ -10,6 +10,7 @@ import android.graphics.PixelFormat
 import android.os.Build
 import android.os.IBinder
 import android.provider.Settings
+import android.util.Log
 import android.view.Gravity
 import android.view.View
 import android.view.WindowManager
@@ -23,6 +24,7 @@ class OverlayService : Service() {
         const val ACTION_HIDE = "overlay.HIDE"
         const val ACTION_RESUME = "overlay.RESUME"
         const val ACTION_CLEAR = "overlay.CLEAR"
+        const val ACTION_TEST = "overlay.TEST"
         private const val NOTIFICATION_ID = 310
         private const val CHANNEL_ID = "shogi_review_overlay"
     }
@@ -31,6 +33,15 @@ class OverlayService : Service() {
     private var overlayView: View? = null
     private var values: List<OverlayCandidate> = emptyList()
     private var calibrating = false
+    private var temporarilyHidden = false
+    private var diagnostic = false
+    private var hasWindowError = false
+
+    private fun publishStatus(message: String) {
+        OverlaySettings.preferences(this).edit()
+            .putString("last_overlay_status", message)
+            .apply()
+    }
 
     override fun onCreate() {
         super.onCreate()
@@ -49,6 +60,8 @@ class OverlayService : Service() {
             return START_NOT_STICKY
         }
         if (!Settings.canDrawOverlays(this)) {
+            publishStatus("表示権限なし：設定で「他のアプリの上に表示」を許可してください")
+            hasWindowError = true
             stopSelf()
             return START_NOT_STICKY
         }
@@ -64,11 +77,34 @@ class OverlayService : Service() {
             .setOngoing(true)
             .addAction(android.R.drawable.ic_menu_close_clear_cancel, "停止", stopAction)
             .build()
-        startForeground(NOTIFICATION_ID, notification)
+        try {
+            startForeground(NOTIFICATION_ID, notification)
+        } catch (e: Exception) {
+            hasWindowError = true
+            Log.e("ShogiOverlay", "Failed to start overlay foreground service", e)
+            publishStatus("オーバーレイの常駐開始に失敗: " + e.javaClass.simpleName +
+                " " + (e.message ?: ""))
+            stopSelf()
+            return START_NOT_STICKY
+        }
 
         when (intent?.action) {
-            ACTION_HIDE -> overlayView?.visibility = View.INVISIBLE
-            ACTION_RESUME -> overlayView?.visibility = View.VISIBLE
+            ACTION_HIDE -> {
+                temporarilyHidden = true
+                overlayView?.visibility = View.INVISIBLE
+            }
+            ACTION_RESUME -> {
+                // A background restart can recreate the service without
+                // restoring its old WindowManager view. Simply setting
+                // visibility on a null view leaves the overlay absent forever.
+                temporarilyHidden = false
+                if (!calibrating) showPassive() else overlayView?.visibility = View.VISIBLE
+            }
+            ACTION_TEST -> {
+                diagnostic = true
+                temporarilyHidden = false
+                showPassive()
+            }
             ACTION_CLEAR -> { values = emptyList(); if (!calibrating) showPassive() }
             ACTION_UPDATE -> {
                 val usi = intent.getStringArrayListExtra("moves").orEmpty()
@@ -88,7 +124,10 @@ class OverlayService : Service() {
                 if (!calibrating) showPassive()
             }
             ACTION_CALIBRATE -> showCalibration()
-            else -> if (!calibrating) showPassive()
+            else -> {
+                if (intent?.action == ACTION_REFRESH) diagnostic = false
+                if (!calibrating) showPassive()
+            }
         }
         return START_NOT_STICKY
     }
@@ -131,27 +170,60 @@ class OverlayService : Service() {
         overlayView = null
     }
 
+    private fun addWindow(view: View, params: WindowManager.LayoutParams): Boolean {
+        return try {
+            windows.addView(view, params)
+            overlayView = view
+            hasWindowError = false
+            publishStatus("枠のウィンドウ作成成功（表示許可あり）")
+            true
+        } catch (e: Exception) {
+            hasWindowError = true
+            Log.e("ShogiOverlay", "WindowManager.addView failed", e)
+            publishStatus("枠の表示に失敗: " + e.javaClass.simpleName +
+                " " + (e.message ?: ""))
+            overlayView = null
+            false
+        }
+    }
+
     private fun showPassive() {
         calibrating = false
+        val existing = overlayView as? CandidateOverlayView
+        if (existing != null && existing.parent != null) {
+            // Reuse the same window. Recreating a fullscreen application
+            // overlay every 4.5 seconds causes flicker and can lose the
+            // window when Android briefly suspends our background service.
+            existing.setCandidates(values)
+            existing.setDiagnostic(diagnostic)
+            existing.visibility = if (temporarilyHidden) View.INVISIBLE else View.VISIBLE
+            existing.invalidate()
+            if (!temporarilyHidden) publishStatus("枠のウィンドウ維持中（表示許可あり）")
+            return
+        }
         clearView()
-        val view = CandidateOverlayView(this).apply { setCandidates(values) }
-        windows.addView(view, passiveParams())
-        overlayView = view
+        val view = CandidateOverlayView(this).apply {
+            setCandidates(values)
+            setDiagnostic(diagnostic)
+            visibility = if (temporarilyHidden) View.INVISIBLE else View.VISIBLE
+        }
+        addWindow(view, passiveParams())
     }
 
     private fun showCalibration() {
         calibrating = true
+        temporarilyHidden = false
         clearView()
         val view = BoardCalibrationView(this) {
             calibrating = false
             showPassive()
         }
-        windows.addView(view, calibrationParams())
-        overlayView = view
+        addWindow(view, calibrationParams())
     }
 
     override fun onDestroy() {
         clearView()
+        if (!hasWindowError) publishStatus("枠表示サービス停止")
         super.onDestroy()
     }
 }
