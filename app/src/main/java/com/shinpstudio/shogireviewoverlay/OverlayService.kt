@@ -101,6 +101,7 @@ class OverlayService : Service() {
                 if (!calibrating) showPassive() else overlayView?.visibility = View.VISIBLE
             }
             ACTION_TEST -> {
+                values = emptyList() // Display test must be independent of stale engine candidates.
                 diagnostic = true
                 temporarilyHidden = false
                 showPassive()
