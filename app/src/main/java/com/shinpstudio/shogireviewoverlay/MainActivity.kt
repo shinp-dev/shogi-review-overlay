@@ -6,6 +6,8 @@ import android.content.Intent
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.media.projection.MediaProjectionManager
+import android.media.projection.MediaProjectionConfig
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
@@ -39,7 +41,8 @@ class MainActivity : Activity() {
         val scroll = ScrollView(this)
         val content = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(dp(18), dp(22), dp(18), dp(30))
+            setPadding(dp(18), dp(38), dp(18), dp(30))
+            setBackgroundColor(0xFFF4F8FB.toInt())
         }
         scroll.addView(content)
 
@@ -47,15 +50,41 @@ class MainActivity : Activity() {
             TextView(this).apply {
                 this.text = message
                 textSize = size
+                setTextColor(if (size >= 18f) 0xFF20597A.toInt() else Color.DKGRAY)
                 setPadding(0, dp(7), 0, dp(7))
             }
 
-        fun button(message: String, handler: () -> Unit) {
+        var destination = content
+        fun button(message: String, prominent: Boolean = false, handler: () -> Unit) {
             val view = Button(this).apply {
                 text = message
+                isAllCaps = false
+                if (prominent) {
+                    setBackgroundTintList(android.content.res.ColorStateList.valueOf(0xFF137365.toInt()))
+                    setTextColor(Color.WHITE)
+                }
                 setOnClickListener { handler() }
             }
-            content.addView(view, LinearLayout.LayoutParams(-1, dp(52)))
+            destination.addView(view, LinearLayout.LayoutParams(-1, dp(52)))
+        }
+
+        fun expandable(label: String): LinearLayout {
+            val toggle = Button(this).apply {
+                text = "$label ＋"
+                isAllCaps = false
+            }
+            val body = LinearLayout(this).apply {
+                orientation = LinearLayout.VERTICAL
+                visibility = View.GONE
+            }
+            content.addView(toggle, LinearLayout.LayoutParams(-1, dp(48)))
+            content.addView(body)
+            toggle.setOnClickListener {
+                val open = body.visibility != View.VISIBLE
+                body.visibility = if (open) View.VISIBLE else View.GONE
+                toggle.text = label + if (open) " −" else " ＋"
+            }
+            return body
         }
 
         content.addView(text("将棋レビュー・オーバーレイ", 23f))
@@ -84,75 +113,23 @@ class MainActivity : Activity() {
                     // Never transfer a Wars capture / candidate position to Quest.
                     OverlayService.stopAll(this@MainActivity)
                     if (::status.isInitialized)
-                        status.text = "対象アプリを切り替えました。枠を調整し、画面共有から再開してください。"
+                        status.text = "対象アプリを切り替えました。「盤面解析を開始」を押してください。"
                 }
             }
         }
         content.addView(targetSelector)
-        content.addView(text("切替後は対象アプリで枠調整を行ってください。盤面位置はアプリ別に記憶します。将棋クエストは9路・先手が下の振り返り画面向けです。", 13f))
+        content.addView(text("盤面位置はアプリ別に記憶します。開始後に緑枠が出ます。位置が違う場合だけ画面上の「枠調整」を使ってください。", 13f))
 
-        button("① ほかのアプリの上に表示を許可") {
-            val intent = Intent(
-                Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
-                Uri.parse("package:" + packageName)
-            )
-            startActivity(intent)
-        }
-        button("枠だけ表示（動作確認・解析なし）") {
-            if (!Settings.canDrawOverlays(this)) {
-                status.text = "表示権限がありません。先に①を許可してください。"
-            } else {
-                if (startOverlay(OverlayService.ACTION_TEST)) {
-                    status.text = "緑の枠と「枠表示テスト：起動中」が出るか確認してください。" +
-                        "出なければ「枠の表示状態を確認」を押してください。"
-                }
-            }
-        }
-        button("枠の表示状態を確認") {
-            status.text = prefs.getString("last_overlay_status",
-                "まだ枠表示サービスの記録がありません。先に表示テストを押してください。")
-                ?: "表示状態を取得できません"
-        }
-        content.addView(text("初回は①で権限を許可し、「枠だけ表示」で動作確認。" +
-            "手動の盤面位置調整は必須ではなく、対象ごとに初期位置があります。", 13f))
-        button("② 盤面位置を調整（完了ボタンで戻る）") {
-            if (startOverlay(OverlayService.ACTION_CALIBRATE)) {
-                stopService(Intent(this, ReviewCaptureService::class.java))
-                Toast.makeText(this, "対象アプリの振り返り画面に切り替え、枠を合わせて「完了」", Toast.LENGTH_LONG).show()
-            }
+        button("盤面解析を開始", prominent = true) { requestReview() }
+        content.addView(text("画面共有を許可し、対象アプリの振り返り画面に移動してください。画面上の「解析」「枠調整」「終了」で操作できます。", 13f))
+        status = text(prefs.getString("last_auto_status", "未解析") ?: "未解析", 14f)
+        content.addView(status)
+        button("すべて停止") {
+            OverlayService.stopAll(this)
+            status.text = "画面共有・枠・解析を停止しました"
         }
 
-        val cropLabel = text("枠線の除外: 外周8%（盤面の線を含めない）", 14f)
-        content.addView(cropLabel)
-        val cropSlider = SeekBar(this).apply {
-            max = 6
-            progress = prefs.getInt("crop_margin_pct", 8).coerceIn(6, 12) - 6
-        }
-        cropLabel.text = "枠線の除外: 外周" + (cropSlider.progress + 6) + "%"
-        cropSlider.setOnSeekBarChangeListener(changeListener { step ->
-            val pct = step + 6
-            prefs.edit().putInt("crop_margin_pct", pct).apply()
-            cropLabel.text = "枠線の除外: 外周" + pct + "%"
-        })
-        content.addView(cropSlider)
-
-        button("③ 盤面を自動認識・解析（画面共有を許可）") {
-            if (!Settings.canDrawOverlays(this)) {
-                status.text = "先にオーバーレイ権限を許可してください"
-            } else {
-                val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
-                startActivityForResult(manager.createScreenCaptureIntent(), 61)
-            }
-        }
-        button("自動認識を停止") {
-            stopService(Intent(this, ReviewCaptureService::class.java))
-            status.text = "画面認識を停止しました"
-        }
-        button("認識した最新SFENを入力欄に取り込む") {
-            val value = prefs.getString("last_auto_sfen", null)
-            if (value != null) sfenInput.setText(value)
-            status.text = prefs.getString("last_auto_status", "認識結果がありません")
-        }
+        content.addView(text("解析設定", 18f))
         content.addView(text("振り返り時の手番"))
         switchTurn@ run {
             val toggle = Switch(this).apply {
@@ -164,31 +141,18 @@ class MainActivity : Activity() {
             }
             content.addView(toggle)
         }
-        content.addView(text("解析時間: 1手約1.2秒（400〜3000ms）"))
+        val thinkLabel = text("解析時間: " + prefs.getInt("think_ms", 1200) + "ms（400〜3000ms）")
+        content.addView(thinkLabel)
         val thinkSlider = SeekBar(this).apply {
             max = 13
             progress = ((prefs.getInt("think_ms", 1200) - 400) / 200).coerceIn(0, 13)
         }
         thinkSlider.setOnSeekBarChangeListener(changeListener { value ->
-            prefs.edit().putInt("think_ms", 400 + value * 200).apply()
+            val millis = 400 + value * 200
+            prefs.edit().putInt("think_ms", millis).apply()
+            thinkLabel.text = "解析時間: " + millis + "ms（400〜3000ms）"
         })
         content.addView(thinkSlider)
-
-        content.addView(text("③ 解析する局面（SFEN）", 18f))
-        sfenInput = EditText(this).apply {
-            setText(OverlaySettings.sfen(this@MainActivity))
-            inputType = InputType.TYPE_CLASS_TEXT or
-                InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
-            minLines = 3
-            maxLines = 5
-            setHorizontallyScrolling(false)
-            setBackgroundColor(0xFFF0F2F5.toInt())
-            setPadding(dp(12), dp(10), dp(12), dp(10))
-            gravity = Gravity.TOP or Gravity.START
-            textSize = 13f
-        }
-        content.addView(sfenInput, LinearLayout.LayoutParams(-1, -2))
-        button("初期局面を入力") { sfenInput.setText(Sfen.INITIAL) }
 
         content.addView(text("候補数（1〜3）"))
         val countText = text("候補: " + OverlaySettings.count(this), 14f)
@@ -203,6 +167,7 @@ class MainActivity : Activity() {
         })
         content.addView(countSlider)
 
+        content.addView(text("オーバーレイ設定", 18f))
         content.addView(text("オーバーレイ文字サイズ"))
         val fontText = text("文字サイズ: " + OverlaySettings.fontSp(this) + "sp", 14f)
         content.addView(fontText)
@@ -233,13 +198,60 @@ class MainActivity : Activity() {
         switch("移動矢印を表示", "arrows", true)
         switch("候補一覧を表示", "panel", true)
 
-        button("④ 候補を計算・オーバーレイに表示") { calculateAndShow() }
-        button("オーバーレイ停止") {
-            OverlayService.stopAll(this)
-            status.text = "オーバーレイを停止しました"
+        val manualBody = expandable("SFEN手動解析")
+        destination = manualBody
+        button("認識した最新SFENを入力欄に取り込む") {
+            val value = prefs.getString("last_auto_sfen", null)
+            if (value != null) sfenInput.setText(value)
+            status.text = prefs.getString("last_auto_status", "認識結果がありません")
         }
-        status = text(prefs.getString("last_auto_status", "未解析。画面取得またはSFEN入力で開始してください") ?: "未解析", 14f)
-        content.addView(status)
+        manualBody.addView(text("解析する局面（SFEN）", 15f))
+        sfenInput = EditText(this).apply {
+            setText(OverlaySettings.sfen(this@MainActivity))
+            inputType = InputType.TYPE_CLASS_TEXT or
+                InputType.TYPE_TEXT_FLAG_MULTI_LINE or InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS
+            minLines = 3
+            maxLines = 5
+            setHorizontallyScrolling(false)
+            setBackgroundColor(0xFFF0F2F5.toInt())
+            setPadding(dp(12), dp(10), dp(12), dp(10))
+            gravity = Gravity.TOP or Gravity.START
+            textSize = 13f
+        }
+        manualBody.addView(sfenInput, LinearLayout.LayoutParams(-1, -2))
+        button("初期局面を入力") { sfenInput.setText(Sfen.INITIAL) }
+
+        button("候補を計算・表示") { calculateAndShow() }
+
+        val advanced = expandable("詳細設定・動作確認")
+        destination = advanced
+        val cropLabel = text("枠線の除外: 外周8%（盤面の線を含めない）", 14f)
+        advanced.addView(cropLabel)
+        val cropSlider = SeekBar(this).apply {
+            max = 6
+            progress = prefs.getInt("crop_margin_pct", 8).coerceIn(6, 12) - 6
+        }
+        cropLabel.text = "枠線の除外: 外周" + (cropSlider.progress + 6) + "%"
+        cropSlider.setOnSeekBarChangeListener(changeListener { step ->
+            val pct = step + 6
+            prefs.edit().putInt("crop_margin_pct", pct).apply()
+            cropLabel.text = "枠線の除外: 外周" + pct + "%"
+        })
+        advanced.addView(cropSlider)
+
+        button("他のアプリの上に表示を許可") { requestOverlayPermission() }
+        button("枠だけ表示（解析なし）") {
+            OverlayService.stopAll(this)
+            if (startOverlay(OverlayService.ACTION_TEST)) {
+                status.text = "枠の表示テストを開始しました。画面上の「終了」で停止できます。"
+                moveTaskToBack(true)
+            }
+        }
+        button("枠の表示状態を確認") {
+            status.text = prefs.getString("last_overlay_status", "まだ枠表示サービスの記録がありません")
+                ?: "表示状態を取得できません"
+        }
+        destination = content
         setContentView(scroll)
 
         if (Build.VERSION.SDK_INT >= 33 &&
@@ -247,8 +259,37 @@ class MainActivity : Activity() {
         ) requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 7)
     }
 
+    private fun requestOverlayPermission() {
+        startActivityForResult(Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+            Uri.parse("package:" + packageName)), 62)
+    }
+
+    private var waitingForOverlayPermission = false
+
+    private fun requestReview() {
+        if (!Settings.canDrawOverlays(this)) {
+            waitingForOverlayPermission = true
+            requestOverlayPermission()
+            return
+        }
+        // One explicit start creates a fresh capture/overlay session.
+        OverlayService.stopAll(this)
+        val manager = getSystemService(MEDIA_PROJECTION_SERVICE) as MediaProjectionManager
+        val captureIntent = if (Build.VERSION.SDK_INT >= 34)
+            manager.createScreenCaptureIntent(MediaProjectionConfig.createConfigForDefaultDisplay())
+        else manager.createScreenCaptureIntent()
+        startActivityForResult(captureIntent, 61)
+    }
+
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode == 62) {
+            val resume = waitingForOverlayPermission
+            waitingForOverlayPermission = false
+            if (resume && Settings.canDrawOverlays(this)) requestReview()
+            else if (!Settings.canDrawOverlays(this)) status.text = "オーバーレイ権限が必要です"
+            return
+        }
         if (requestCode != 61) return
         if (resultCode != RESULT_OK || data == null) {
             status.text = "画面取得の許可がキャンセルされました"
@@ -262,7 +303,8 @@ class MainActivity : Activity() {
         try {
             if (!startOverlay(OverlayService.ACTION_START_REVIEW)) return
             startForegroundService(intent)
-            status.text = "認識を開始しました。選択したアプリの対局後振り返りへ切り替えてください"
+            status.text = "認識を開始しました。画面上の「終了」で停止できます"
+            moveTaskToBack(true)
         } catch (e: Exception) {
             status.text = "画面認識を開始できません: " + e.message
         }
