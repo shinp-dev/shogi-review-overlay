@@ -40,9 +40,10 @@ internal object BoardAlignment {
         height: Int,
         rect: RectF,
         inset: Float,
-        classifier: PieceTemplateModel,
+        classifier: PieceTemplateModel?,
         dx: Int,
-        dy: Int
+        dy: Int,
+        cnn: CnnPieceModel? = null
     ): Scan {
         val board = MutableList<Piece?>(81) { null }
         val uncertainSquares = mutableListOf<Int>()
@@ -50,12 +51,13 @@ internal object BoardAlignment {
         var total = 0.0
         var minScore = 1.0
         for (square in 0..80) {
-            val signature = PieceTemplateModel.sample(
-                pixels, width, height,
-                rect.left + dx, rect.top + dy, rect.width(), rect.height(),
-                square, inset
-            )
-            val result = classifier.match(signature)
+            val result = if (cnn != null) cnn.match(CnnPieceModel.sample(
+                pixels, width, height, rect.left + dx, rect.top + dy,
+                rect.width(), rect.height(), square, inset
+            )) else requireNotNull(classifier).match(PieceTemplateModel.sample(
+                pixels, width, height, rect.left + dx, rect.top + dy,
+                rect.width(), rect.height(), square, inset
+            ))
             if (result.unknown) { uncertainSquares.add(square); continue }
             val code = result.code ?: continue
             board[square] = PieceTemplateModel.pieceForCode(code)
@@ -114,6 +116,26 @@ internal object BoardAlignment {
         return searchOffsets(maxShift, ::inside) { dx, dy ->
             evaluate(pixels, width, height, rect, inset, classifier, dx, dy)
         }
+    }
+
+    /** One CNN pass in the usual case; at most four small corrective passes. */
+    fun findCnn(
+        pixels: IntArray, width: Int, height: Int, rect: RectF,
+        inset: Float, classifier: CnnPieceModel
+    ): Scan {
+        fun scan(dx: Int, dy: Int) = evaluate(
+            pixels, width, height, rect, inset, null, dx, dy, classifier
+        )
+        var winner = scan(0, 0)
+        if (winner.reliable && winner.occupied >= 2) return winner
+        for ((dx, dy) in listOf(2 to 0, -2 to 0, 0 to 2, 0 to -2)) {
+            if (rect.left + dx < 0 || rect.top + dy < 0 ||
+                rect.right + dx > width || rect.bottom + dy > height) continue
+            val candidate = scan(dx, dy)
+            if (better(candidate, winner)) winner = candidate
+            if (winner.reliable) break
+        }
+        return winner
     }
 
     /** Pure search, testable without Android graphics. */

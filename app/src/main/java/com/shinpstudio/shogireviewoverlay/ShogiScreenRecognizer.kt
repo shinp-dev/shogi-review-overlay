@@ -14,37 +14,10 @@ data class BoardRecognition(
     val uncertainSquares: List<Int> = emptyList()
 )
 
-/**
- * 81-square image matching: 8% border excluded; sample 32x32 monochrome pixels;
- * compare horizontal and vertical ink distributions plus exact pixel positions.
- *
- * This class does NOT use OCR, ML Kit, or machine learning inference.
- * Reference masks are selected from Wars (base plus promoted templates)
- * or Quest (base plus promoted templates).
- *
- * It deliberately refuses uncertain squares. When
- * previous valid position exists, ReviewStateTracker can reconstruct one legal
- * move (including drops and captures) from this detected board.
- */
+/** 81-square offline grayscale CNN; hand recognition and legal/inventory checks remain separate. */
 class ShogiScreenRecognizer(private val context: Context) : AutoCloseable {
-    private val warsPieces: PieceTemplateModel = PieceTemplateModel.create(
-        listOf(
-            "shogi_templates_v1.txt", // Original basic pieces: keep backwards compatibility.
-            "shogi_wars_variants_v1.txt", // Another supplied Wars board theme.
-            "shogi_wars_promoted_v1.txt" // Six promoted types, both orientations.
-        ).joinToString("\n") { file ->
-            context.assets.open(file).bufferedReader().use { it.readText() }
-        }
-    )
-    private val questPieces: PieceTemplateModel = PieceTemplateModel.create(
-        listOf(
-            "shogi_quest_templates_v1.txt", // Original 16 basic-piece refs
-            "shogi_quest_variants_v1.txt", // More basic-piece refs from later replay
-            "shogi_quest_promoted_v1.txt" // 6 promoted kinds, 2 orientations
-        ).joinToString("\n") { file ->
-            context.assets.open(file).bufferedReader().use { it.readText() }
-        }
-    )
+    private val cnn = CnnPieceModel(context.assets.open("shogi_cnn_v1.txt")
+        .bufferedReader().use { it.readText() })
 
     private val questHands: QuestHandRecognizer = QuestHandRecognizer(
         context.assets.open("shogi_quest_hand_icons_v1.txt")
@@ -66,22 +39,20 @@ class ShogiScreenRecognizer(private val context: Context) : AutoCloseable {
             r.width() < 300 || r.height() < 300)
             return BoardRecognition(null, "盤面位置を調整してください", 0)
 
-        // Read the frame once. All 81*1024 binary pixel samples use this array;
+        // Read the frame once. All 81*1024 grayscale pixel samples use this array;
         // no per-square Bitmap allocation, OCR call or external dependency.
         val inset = OverlaySettings.preferences(context).getInt("crop_margin_pct", 8).coerceIn(6, 12) / 100f
         val pixels = IntArray(frame.width * frame.height)
         frame.getPixels(pixels, 0, frame.width, 0, 0, frame.width, frame.height)
 
-        val classifier = if (OverlaySettings.target(context) == ReviewTarget.SHOGI_QUEST)
-            questPieces else warsPieces
-        val corrected = BoardAlignment.find(
-            pixels, frame.width, frame.height, r, inset, classifier
+        val corrected = BoardAlignment.findCnn(
+            pixels, frame.width, frame.height, r, inset, cnn
         )
         val board = corrected.board
         val occupied = corrected.occupied
         if (!corrected.reliable) return BoardRecognition(
             null,
-            "位置自動補正後も未確定: " + occupied + "枚、不確実" +
+            "CNN認識未確定: " + occupied + "枚、不確実" +
                 corrected.uncertain + "マス、王将" +
                 (if (corrected.kings) "OK" else "NG") +
                 "（補正: " + corrected.dx + "," + corrected.dy + "px）",
