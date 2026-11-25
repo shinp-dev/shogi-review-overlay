@@ -42,6 +42,18 @@ class BoardAlignmentTest {
         ))
     }
 
+    @Test fun winningOffsetRetainsItsUncertainSquareIndices() {
+        val winner = BoardAlignment.searchOffsets(4, { _, _ -> true }) { dx, dy ->
+            val indices = if (dx == 1 && dy == 0) listOf(8, 40, 72) else listOf(0, 1, 2, 3)
+            make(dx, dy, missing = indices.size).copy(uncertainSquares = indices)
+        }
+        assertEquals(1, winner.dx)
+        assertEquals(0, winner.dy)
+        assertEquals(3, winner.uncertain)
+        assertEquals(listOf(8, 40, 72), winner.uncertainSquares)
+        assertFalse(winner.reliable)
+    }
+
     @Test fun actualBinaryPieceSamplingPicksShiftedPixels() {
         val content = File("src/main/assets/shogi_templates_v1.txt").readText()
         val model = PieceTemplateModel.create(content)

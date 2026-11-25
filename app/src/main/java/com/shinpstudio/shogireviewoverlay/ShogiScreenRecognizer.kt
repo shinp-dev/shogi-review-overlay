@@ -10,7 +10,8 @@ data class BoardRecognition(
     val recognized: Int,
     val board: List<Piece?>? = null,
     val offsetX: Int = 0,
-    val offsetY: Int = 0
+    val offsetY: Int = 0,
+    val uncertainSquares: List<Int> = emptyList()
 )
 
 /**
@@ -84,7 +85,10 @@ class ShogiScreenRecognizer(private val context: Context) : AutoCloseable {
                 corrected.uncertain + "マス、王将" +
                 (if (corrected.kings) "OK" else "NG") +
                 "（補正: " + corrected.dx + "," + corrected.dy + "px）",
-            occupied
+            occupied,
+            offsetX = corrected.dx,
+            offsetY = corrected.dy,
+            uncertainSquares = corrected.uncertainSquares
         )
         // The Wars tray has a different style and no fixed piece order.
         // Use a restricted set of verified real-image hand glyphs and validate

@@ -65,6 +65,9 @@ class OverlayService : Service() {
     private lateinit var windows: WindowManager
     private var overlayView: View? = null
     private var values: List<OverlayCandidate> = emptyList()
+    private var uncertainSquares = intArrayOf()
+    private var uncertainDx = 0
+    private var uncertainDy = 0
     @Volatile private var calibrating = false
     private var controls: LinearLayout? = null
     private var controlStatus: TextView? = null
@@ -133,6 +136,12 @@ class OverlayService : Service() {
         return START_NOT_STICKY
     }
 
+    private fun clearUncertainSquares() {
+        uncertainSquares = intArrayOf()
+        uncertainDx = 0
+        uncertainDy = 0
+    }
+
     private fun handleAction(intent: Intent?) {
         if (closing) return
         when (intent?.action) {
@@ -151,19 +160,31 @@ class OverlayService : Service() {
                 controls?.visibility = View.VISIBLE
             }
             ACTION_START_REVIEW -> {
+                clearUncertainSquares()
                 values = emptyList()
                 diagnostic = false
                 setStatus("盤面を待っています（9×9の外周に枠を合わせてください）")
                 showPassive()
             }
             ACTION_TEST -> {
+                clearUncertainSquares()
                 values = emptyList() // Display test must be independent of stale engine candidates.
                 diagnostic = true
                 setStatus("枠表示中・解析なし")
                 showPassive()
             }
-            ACTION_CLEAR -> { values = emptyList(); if (!calibrating) showPassive() }
+            ACTION_CLEAR -> {
+                values = emptyList()
+                clearUncertainSquares()
+                if (!calibrating) {
+                    uncertainSquares = intent.getIntArrayExtra("uncertain_squares") ?: intArrayOf()
+                    uncertainDx = intent.getIntExtra("uncertain_dx", 0)
+                    uncertainDy = intent.getIntExtra("uncertain_dy", 0)
+                    showPassive()
+                }
+            }
             ACTION_UPDATE -> {
+                clearUncertainSquares()
                 val usi = intent.getStringArrayListExtra("moves").orEmpty()
                 val labels = intent.getStringArrayListExtra("labels").orEmpty()
                 val scores = intent.getIntArrayExtra("scores") ?: intArrayOf()
@@ -343,6 +364,7 @@ class OverlayService : Service() {
             // overlay every 4.5 seconds causes flicker and can lose the
             // window when Android briefly suspends our background service.
             existing.setCandidates(values)
+            existing.setUncertainSquares(uncertainSquares, uncertainDx, uncertainDy)
             existing.setDiagnostic(diagnostic)
             existing.setCapturingFrame(capturingFrame)
             publishStatus("枠のウィンドウ維持中（表示許可あり）")
@@ -352,6 +374,7 @@ class OverlayService : Service() {
         clearView()
         val view = CandidateOverlayView(this).apply {
             setCandidates(values)
+            setUncertainSquares(uncertainSquares, uncertainDx, uncertainDy)
             setDiagnostic(diagnostic)
             setCapturingFrame(capturingFrame)
         }
@@ -362,6 +385,7 @@ class OverlayService : Service() {
     private fun showCalibration() {
         calibrating = true
         capturingFrame = false
+        clearUncertainSquares()
         values = emptyList()
         clearControls()
         clearView()

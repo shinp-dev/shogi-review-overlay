@@ -272,13 +272,22 @@ class ReviewCaptureService : Service() {
         // holding trays can re-establish a complete position from that frame.
         val position = inferred ?: state.sfen?.let { Sfen.parse(it) }
         if (position == null) {
+            // The displayed candidates are cleared; a return to the previous
+            // good board must not be skipped as an already displayed result.
+            lastSfen = ""
+            lastBoardSignature = 0L
             lastRejectedSignature = hash
             lastRejectedAt = SystemClock.elapsedRealtime()
             sendOverlay(Intent(this, OverlayService::class.java).apply {
                 action = OverlayService.ACTION_CLEAR
+                putExtra("uncertain_squares", state.uncertainSquares.toIntArray())
+                putExtra("uncertain_dx", state.offsetX)
+                putExtra("uncertain_dy", state.offsetY)
             })
             return
         }
+        lastRejectedSignature = 0L
+        lastRejectedAt = 0L
         val sfen = ReviewStateTracker.format(position)
         // Even with unchanged SFEN, the board can shift on screen. Keep the
         // arrows aligned without restarting the engine on the same position.

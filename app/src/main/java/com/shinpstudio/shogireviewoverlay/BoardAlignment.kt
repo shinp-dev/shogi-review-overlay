@@ -25,7 +25,8 @@ internal object BoardAlignment {
         val kings: Boolean,
         val inventory: Boolean,
         val score: Double,
-        val lowestScore: Double
+        val lowestScore: Double,
+        val uncertainSquares: List<Int> = emptyList()
     ) {
         val reliable: Boolean
             get() = uncertain == 0 && kings && (occupied != 40 || inventory)
@@ -44,7 +45,7 @@ internal object BoardAlignment {
         dy: Int
     ): Scan {
         val board = MutableList<Piece?>(81) { null }
-        var missing = 0
+        val uncertainSquares = mutableListOf<Int>()
         var occupied = 0
         var total = 0.0
         var minScore = 1.0
@@ -55,7 +56,7 @@ internal object BoardAlignment {
                 square, inset
             )
             val result = classifier.match(signature)
-            if (result.unknown) { missing++; continue }
+            if (result.unknown) { uncertainSquares.add(square); continue }
             val code = result.code ?: continue
             board[square] = PieceTemplateModel.pieceForCode(code)
             occupied++
@@ -73,8 +74,8 @@ internal object BoardAlignment {
                 )
             )
         } else false
-        return Scan(board, dx, dy, missing, occupied, kings, inventory,
-            if (occupied == 0) 0.0 else total / occupied, minScore)
+        return Scan(board, dx, dy, uncertainSquares.size, occupied, kings, inventory,
+            if (occupied == 0) 0.0 else total / occupied, minScore, uncertainSquares.toList())
     }
 
     /**

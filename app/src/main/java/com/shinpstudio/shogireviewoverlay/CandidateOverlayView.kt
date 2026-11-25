@@ -18,6 +18,16 @@ data class OverlayCandidate(val move: ShogiMove, val label: String, val score: I
 
 class CandidateOverlayView(context: Context) : View(context) {
     private var candidates: List<OverlayCandidate> = emptyList()
+    private var uncertainSquares = intArrayOf()
+    private var uncertainDx = 0
+    private var uncertainDy = 0
+
+    fun setUncertainSquares(squares: IntArray, dx: Int, dy: Int) {
+        uncertainSquares = squares.filter { it in 0..80 }.distinct().toIntArray()
+        uncertainDx = dx
+        uncertainDy = dy
+        invalidate()
+    }
     private var diagnostic = false
     private var capturingFrame = false
 
@@ -207,6 +217,27 @@ class CandidateOverlayView(context: Context) : View(context) {
         paint.style = Paint.Style.FILL
     }
 
+    private fun drawUncertainSquares(canvas: Canvas) {
+        if (uncertainSquares.isEmpty()) return
+        // Use the rejected scan's offset, not the last accepted alignment.
+        // Keep the saved calibration and green outline unchanged.
+        val board = OverlaySettings.board(context).pixels(width, height).apply {
+            offset(uncertainDx.toFloat(), uncertainDy.toFloat())
+        }
+        val cw = board.width() / 9f
+        val ch = board.height() / 9f
+        val inset = dp(2f).coerceAtMost(min(cw, ch) / 4f)
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = dp(3f)
+        paint.color = Color.RED
+        for (index in uncertainSquares) {
+            val center = point(board, index)
+            canvas.drawRect(center.x - cw / 2 + inset, center.y - ch / 2 + inset,
+                center.x + cw / 2 - inset, center.y + ch / 2 - inset, paint)
+        }
+        paint.style = Paint.Style.FILL
+    }
+
     override fun onDraw(canvas: Canvas) {
         super.onDraw(canvas)
         if (width <= 0 || height <= 0) return
@@ -217,6 +248,8 @@ class CandidateOverlayView(context: Context) : View(context) {
             drawPanel(canvas, board)
         }
         drawBoardFrame(canvas, board)
+        // Never let diagnostic ink contaminate the next captured frame.
+        if (!capturingFrame) drawUncertainSquares(canvas)
         if (diagnostic && !capturingFrame) {
             // Diagnostic mode separates WindowManager visibility from board
             // recognition. This banner must appear even with zero moves.
