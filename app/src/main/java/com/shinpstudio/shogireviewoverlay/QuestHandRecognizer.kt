@@ -198,6 +198,7 @@ internal class QuestHandRecognizer(iconText: String, digitText: String) {
         ) != null
     }
 
+    @Suppress("unused")
     private fun locateIcons(
         pixels: IntArray, w: Int, h: Int, left: Float, top: Float,
         boardW: Float, boardH: Float, side: Side
@@ -207,6 +208,7 @@ internal class QuestHandRecognizer(iconText: String, digitText: String) {
         }
     }
 
+    @Suppress("unused")
     private fun sampleIcon(pixels: IntArray, w: Int, h: Int, icon: Icon): Glyph {
         val x0 = icon.left + .145f * (icon.right - icon.left)
         val x1 = icon.right - .145f * (icon.right - icon.left)
@@ -354,25 +356,17 @@ internal class QuestHandRecognizer(iconText: String, digitText: String) {
         )
         val cellW = boardWidth / 9f
         val cellH = boardHeight / 9f
+        // Quest reserves a fixed slot per piece type, including gaps:
+        // upper slots 2..8 and lower slots 0..6 are P,L,N,S,G,B,R.
+        // Do not reject an otherwise correct slot because its glyph is
+        // distorted by the red count, gold border, or resolution.
+        // The full standard inventory is still mandatory below.
         for (side in listOf(Side.WHITE, Side.BLACK)) {
-            val found = locateIcons(
-                pixels, width, height, boardLeft, boardTop, boardWidth, boardHeight, side
-            ) ?: return null
-            var previousIndex = -1
-            for (icon in found) {
-                val chosen = match(sampleIcon(pixels, width, height, icon), icons) ?: return null
-                if (chosen.score < .78 || chosen.margin < .075) return null
-                if (side == Side.BLACK && !chosen.code.isUpperCase()) return null
-                if (side == Side.WHITE && !chosen.code.isLowerCase()) return null
-                val type = PieceType.fromSfen(chosen.code)
-                val index = order.indexOf(type)
-                // Quest sorts each tray P, L, N, S, G, B, R; a duplicate or
-                // out-of-order result is far more likely a template mismatch.
-                if (index <= previousIndex) return null
-                previousIndex = index
-                // A digit that cannot be read remains unknown. Reconcile it
-                // only when the board and other holding icons uniquely imply
-                // the count. Never assign a default "one" to visible digits.
+            val first = if (side == Side.WHITE) 2 else 0
+            for ((index, type) in order.withIndex()) {
+                val icon = goldRect(pixels, width, height,
+                    slot(boardLeft, boardTop, boardWidth, boardHeight, side, first + index))
+                    ?: continue
                 observed.getValue(side)[type] =
                     count(pixels, width, height, icon, side, cellW, cellH)
             }

@@ -142,4 +142,20 @@ class QuestHandRecognizerTest {
             frame, width, height, 8f, 0f, 675f, 737f, expectedBoard
         ))
     }
+
+    @Test fun fixedSlotsRecoverHandsEvenWhenPieceGlyphsAreUnreadable() {
+        drawReplay()
+        // Simulate a glyph appearance that fails the original template
+        // classifier: replace the glyph interior with gold without moving
+        // any icon or changing its red count badge.
+        for (slot in topIcons + bottomIcons) {
+            for (y in slot.top..slot.bottom) for (x in slot.left until slot.right) {
+                if (frame[y * width + x] == black) put(x, y, gold)
+            }
+        }
+        assertEquals(correctHands, recognizer.recognize(
+            frame, width, height, 8f, 322f, 675f, 737f, expectedBoard
+        ))
+    }
+
 }
