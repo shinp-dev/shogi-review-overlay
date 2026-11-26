@@ -16,8 +16,9 @@ data class BoardRecognition(
 
 /** 81-square offline grayscale CNN; hand recognition and legal/inventory checks remain separate. */
 class ShogiScreenRecognizer(private val context: Context) : AutoCloseable {
-    private val cnn = CnnPieceModel(context.assets.open("shogi_cnn_v1.txt")
-        .bufferedReader().use { it.readText() })
+    private val cnnAsset = context.assets.open("shogi_cnn_v1.txt")
+        .bufferedReader().use { it.readText() }
+    private val cnn = CnnPieceModel(cnnAsset)
 
     private val questHands: QuestHandRecognizer = QuestHandRecognizer(
         context.assets.open("shogi_quest_hand_icons_v1.txt")
@@ -33,7 +34,8 @@ class ShogiScreenRecognizer(private val context: Context) : AutoCloseable {
             .bufferedReader().use { it.readText() }
     )
 
-    fun recognize(frame: Bitmap, geometry: BoardRect, turn: Side): BoardRecognition {
+    fun recognize(frame: Bitmap, geometry: BoardRect, turn: Side, diagnostic: Boolean = false): BoardRecognition {
+        if (diagnostic) java.io.File(context.cacheDir, "shogi-cnn-probe.txt").delete()
         val r = geometry.pixels(frame.width, frame.height)
         if (r.left < 0 || r.top < 0 || r.right > frame.width || r.bottom > frame.height ||
             r.width() < 300 || r.height() < 300)
@@ -48,6 +50,17 @@ class ShogiScreenRecognizer(private val context: Context) : AutoCloseable {
         val corrected = BoardAlignment.findCnn(
             pixels, frame.width, frame.height, r, inset, cnn
         )
+        if (diagnostic) {
+            // Manual debug scans only. Store exactly the sampled board cells
+            // of the chosen offset; never capture the rest of the display.
+            // Failure to write a diagnostic must not break recognition.
+            try {
+                CnnInputProbe.write(context.cacheDir, cnnAsset, cnn, pixels,
+                    frame.width, frame.height, r, inset, corrected)
+            } catch (error: Exception) {
+                android.util.Log.w("ShogiOverlay", "CNN probe write failed", error)
+            }
+        }
         val board = corrected.board
         val occupied = corrected.occupied
         if (!corrected.reliable) return BoardRecognition(

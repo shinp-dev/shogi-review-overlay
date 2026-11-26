@@ -243,7 +243,8 @@ class ReviewCaptureService : Service() {
     private fun scan(bitmap: Bitmap, geometry: BoardRect, capturedTarget: ReviewTarget) {
         if (stopped || OverlayService.isCalibrating() ||
             OverlaySettings.target(this) != capturedTarget) return
-        if (forceScan.getAndSet(false)) {
+        val manualScan = forceScan.getAndSet(false)
+        if (manualScan) {
             lastSfen = ""
             lastBoardSignature = 0L
             lastRejectedSignature = 0L
@@ -270,7 +271,8 @@ class ReviewCaptureService : Service() {
         val prefs = OverlaySettings.preferences(this)
         val turn = if (prefs.getBoolean("black_to_move", true)) Side.BLACK else Side.WHITE
         val state = try {
-            recognizer.recognize(bitmap, geometry, turn)
+            recognizer.recognize(bitmap, geometry, turn, diagnostic = manualScan &&
+                (applicationInfo.flags and android.content.pm.ApplicationInfo.FLAG_DEBUGGABLE) != 0)
         } catch (error: Exception) {
             BoardRecognition(null, "画像認識に失敗: " + error.message, 0)
         }
