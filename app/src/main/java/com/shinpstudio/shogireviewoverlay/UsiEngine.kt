@@ -20,6 +20,7 @@ class UsiEngine(private val context: Context) {
     }
 
     fun analyze(sfen: String, position: ShogiPosition, count: Int, millis: Int): List<Candidate> {
+        val commands = UsiSearchCommands(count, millis)
         check(isInstalled(context)) { "やねうら王本体がAPKにありません（NDKを含むCIでビルドしてください）" }
         val process = ProcessBuilder(executablePath(context))
             .directory(context.filesDir)
@@ -49,10 +50,11 @@ class UsiEngine(private val context: Context) {
         try {
             send("usi")
             awaitLine("usiok", 4500)
-            send("setoption name MultiPV value \${count.coerceIn(1, 3)}")
+            send(commands.multiPv)
             send("setoption name USI_Hash value 16")
             send("setoption name Threads value 1")
             send("setoption name USI_OwnBook value false")
+            send("setoption name BookFile value no_book")
             send("isready")
             awaitLine("readyok", 7000)
             send("usinewgame")
@@ -61,27 +63,28 @@ class UsiEngine(private val context: Context) {
             val output = executor.submit<Pair<List<UsiPrincipalVariation>, String?>> {
                 val pvByRank = mutableMapOf<Int, UsiPrincipalVariation>()
                 var bestmove: String? = null
-                val deadline = SystemClock.elapsedRealtime() + millis + 5500L
+                val deadline = SystemClock.elapsedRealtime() + commands.thinkMillis + 5500L
                 while (SystemClock.elapsedRealtime() < deadline) {
                     val text = reader.readLine()?.trim() ?: break
                     Log.d("ShogiUsi", "< " + text.take(1000))
+                    if (text.startsWith("info string CRITICAL ERROR:")) error(text)
                     if (text.startsWith("bestmove ")) {
                         bestmove = text.split(Regex("\\s+")).getOrNull(1)
                         break
                     }
                     val pv = UsiInfoParser.parse(text) ?: continue
-                    if (pv.rank !in 1..count || pv.moves.isEmpty() ||
+                    if (pv.rank !in 1..commands.candidateCount || pv.moves.isEmpty() ||
                         UsiInfoParser.score(pv) == null) continue
                     val old = pvByRank[pv.rank]
                     if (old == null || pv.depth >= old.depth) pvByRank[pv.rank] = pv
                 }
                 pvByRank.values.sortedBy { it.rank } to bestmove
             }
-            send("go movetime \${millis.coerceIn(250, 7000)}")
+            send(commands.go)
             val (multiPv, bestmove) = output.get(
-                millis.coerceIn(250, 7000) + 6500L, TimeUnit.MILLISECONDS)
+                commands.thinkMillis + 6500L, TimeUnit.MILLISECONDS)
             val legal = ShogiRules.legalMoves(position)
-            val parsed = UsiInfoParser.candidates(position, multiPv, bestmove, count)
+            val parsed = UsiInfoParser.candidates(position, multiPv, bestmove, commands.candidateCount)
             Log.i("ShogiUsi", "legal=${legal.size} pv=${multiPv.map { it.moves.firstOrNull() }} " +
                 "bestmove=$bestmove accepted=${parsed.map { it.move.usi() }}")
             check(parsed.isNotEmpty()) {
