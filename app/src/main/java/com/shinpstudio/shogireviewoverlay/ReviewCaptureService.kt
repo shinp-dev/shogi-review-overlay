@@ -18,7 +18,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * User-approved MediaProjection capture session.
- * The binary template matcher + engine run entirely on the handset; images are never persisted.
+ * The grayscale CNN + engine run entirely on the handset; images are never persisted.
  * An invalid or partial position never replaces the preceding display.
  */
 class ReviewCaptureService : Service() {
@@ -170,6 +170,15 @@ class ReviewCaptureService : Service() {
             return
         }
         try {
+            // The on-screen green rectangle is relative to its overlay View.
+            // Resolve it to the full-display capture frame before leaving main.
+            val geometry = OverlayService.captureBoard(image.width, image.height)
+            if (geometry == null) {
+                busy.set(false)
+                saveStatus("盤面枠の表示を待っています")
+                return
+            }
+            val target = OverlaySettings.target(this)
             val p = image.planes[0]
             val rowPixels = p.rowStride / p.pixelStride
             val raw = Bitmap.createBitmap(rowPixels, image.height, Bitmap.Config.ARGB_8888)
@@ -177,7 +186,7 @@ class ReviewCaptureService : Service() {
             val bitmap = Bitmap.createBitmap(raw, 0, 0, image.width, image.height)
             if (bitmap !== raw) raw.recycle()
             work.execute {
-                try { scan(bitmap) } finally {
+                try { scan(bitmap, geometry, target) } finally {
                     bitmap.recycle()
                     busy.set(false)
                 }
@@ -216,8 +225,8 @@ class ReviewCaptureService : Service() {
     }
     private fun scheduleCapture() { main.postDelayed(nextCapture, 1800) }
 
-    private fun signature(bitmap: Bitmap): Long {
-        val board = OverlaySettings.board(this).pixels(bitmap.width, bitmap.height)
+    private fun signature(bitmap: Bitmap, geometry: BoardRect): Long {
+        val board = geometry.pixels(bitmap.width, bitmap.height)
         var hash = 1469598103934665603L
         for (row in 0..8) for (col in 0..8) for (step in 0..8) {
             val dx = (step % 3 - 1) * .20f
@@ -231,8 +240,9 @@ class ReviewCaptureService : Service() {
         return hash
     }
 
-    private fun scan(bitmap: Bitmap) {
-        if (stopped || OverlayService.isCalibrating()) return
+    private fun scan(bitmap: Bitmap, geometry: BoardRect, capturedTarget: ReviewTarget) {
+        if (stopped || OverlayService.isCalibrating() ||
+            OverlaySettings.target(this) != capturedTarget) return
         if (forceScan.getAndSet(false)) {
             lastSfen = ""
             lastBoardSignature = 0L
@@ -253,16 +263,20 @@ class ReviewCaptureService : Service() {
                 action = OverlayService.ACTION_CLEAR
             })
         }
-        val hash = signature(bitmap)
+        val hash = signature(bitmap, geometry)
         if (hash == lastBoardSignature && lastSfen.isNotEmpty()) return
         if (hash == lastRejectedSignature &&
             SystemClock.elapsedRealtime() - lastRejectedAt < 15000) return
         val prefs = OverlaySettings.preferences(this)
         val turn = if (prefs.getBoolean("black_to_move", true)) Side.BLACK else Side.WHITE
         val state = try {
-            recognizer.recognize(bitmap, OverlaySettings.board(this), turn)
+            recognizer.recognize(bitmap, geometry, turn)
         } catch (error: Exception) {
             BoardRecognition(null, "画像認識に失敗: " + error.message, 0)
+        }
+        if (state.board == null && state.sfen == null) {
+            Log.d("ShogiOverlay", state.message + " " +
+                geometry.pixels(bitmap.width, bitmap.height))
         }
         saveStatus(state.message)
         val inferred = if (state.board != null && lastState != null)

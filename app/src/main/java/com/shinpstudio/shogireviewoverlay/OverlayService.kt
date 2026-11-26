@@ -43,6 +43,30 @@ class OverlayService : Service() {
         fun sessionEpoch(): Long = epoch
         fun isCalibrating(): Boolean = running?.calibrating == true
 
+        /** Call on the main thread; never read a View from the inference worker. */
+        internal fun captureBoard(screenWidth: Int, screenHeight: Int): BoardRect? {
+            check(Looper.myLooper() == Looper.getMainLooper())
+            val owner = running ?: return null
+            if (owner.closing || owner.calibrating) return null
+            val view = owner.overlayView as? CandidateOverlayView ?: return null
+            if (!view.isAttachedToWindow || view.width <= 0 || view.height <= 0) return null
+            val location = IntArray(2)
+            view.getLocationOnScreen(location)
+            val geometry = BoardRect.fromViewport(
+                OverlaySettings.board(owner), location[0], location[1],
+                view.width, view.height, screenWidth, screenHeight
+            )
+            val report = "frame=${screenWidth}x${screenHeight} " +
+                "view=${view.width}x${view.height}@${location[0]},${location[1]} " +
+                "board=${geometry.pixels(screenWidth, screenHeight)}"
+            val prefs = OverlaySettings.preferences(owner)
+            if (prefs.getString("last_capture_geometry", null) != report) {
+                prefs.edit().putString("last_capture_geometry", report).apply()
+                Log.i("ShogiOverlay", report)
+            }
+            return geometry
+        }
+
         // Capture callbacks may only update an existing overlay. They must
         // never start a stopped service or recreate a window after Exit.
         fun deliver(intent: Intent, expectedEpoch: Long = epoch) {

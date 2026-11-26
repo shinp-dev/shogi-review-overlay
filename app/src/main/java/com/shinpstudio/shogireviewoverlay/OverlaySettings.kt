@@ -11,6 +11,25 @@ data class BoardRect(val left: Float, val top: Float, val width: Float, val heig
         )
 
     companion object {
+        /**
+         * Saved calibration is normalized to the overlay View, not to the
+         * full display. Convert its actual screen-space viewport to the
+         * normalized coordinates of the full-display MediaProjection frame.
+         * System-bar/cutout insets can make those two rectangles different.
+         */
+        internal fun fromViewport(
+            board: BoardRect, viewX: Int, viewY: Int, viewWidth: Int, viewHeight: Int,
+            screenWidth: Int, screenHeight: Int
+        ): BoardRect {
+            require(viewWidth > 0 && viewHeight > 0 && screenWidth > 0 && screenHeight > 0)
+            return BoardRect(
+                (viewX + board.left * viewWidth) / screenWidth,
+                (viewY + board.top * viewHeight) / screenHeight,
+                board.width * viewWidth / screenWidth,
+                board.height * viewHeight / screenHeight
+            )
+        }
+
         fun fromPixels(rect: RectF, screenWidth: Int, screenHeight: Int): BoardRect =
             BoardRect(
                 rect.left / screenWidth, rect.top / screenHeight,
