@@ -113,6 +113,11 @@ object OverlaySettings {
             .apply()
     }
 
+    fun threads(context: Context): Int =
+        UsiEngineOptions.threads(preferences(context).getInt("engine_threads", 1))
+    fun hashMb(context: Context): Int =
+        UsiEngineOptions.hashMb(preferences(context).getInt("engine_hash_mb", 16))
+
     fun count(context: Context): Int =
         preferences(context).getInt("count", 3).coerceIn(1, 3)
     fun fontSp(context: Context): Int =

@@ -20,8 +20,9 @@ class UsiEngine(private val context: Context) {
     }
 
     fun analyze(sfen: String, position: ShogiPosition, count: Int, millis: Int): List<Candidate> {
-        val commands = UsiSearchCommands(count, millis)
-        check(isInstalled(context)) { "やねうら王本体がAPKにありません（NDKを含むCIでビルドしてください）" }
+        val commands = UsiSearchCommands(count, millis,
+            OverlaySettings.threads(context), OverlaySettings.hashMb(context))
+        check(isInstalled(context)) { "やねうら王本体がAPKにありません（完全なGitチェックアウトから再ビルドしてください）" }
         val process = ProcessBuilder(executablePath(context))
             .directory(context.filesDir)
             .redirectErrorStream(true)
@@ -51,8 +52,8 @@ class UsiEngine(private val context: Context) {
             send("usi")
             awaitLine("usiok", 4500)
             send(commands.multiPv)
-            send("setoption name USI_Hash value 16")
-            send("setoption name Threads value 1")
+            send(commands.threadsOption)
+            send(commands.hashOption)
             send("setoption name USI_OwnBook value false")
             send("setoption name BookFile value no_book")
             send("isready")

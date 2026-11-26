@@ -154,6 +154,26 @@ class MainActivity : Activity() {
         })
         content.addView(thinkSlider)
 
+        fun engineChoice(label: String, key: String, choices: List<Int>, initial: Int, unit: String) {
+            val valueText = text(label + ": " + initial + unit, 14f)
+            content.addView(valueText)
+            val slider = SeekBar(this).apply {
+                max = choices.lastIndex
+                progress = choices.indexOf(initial).coerceAtLeast(0)
+            }
+            slider.setOnSeekBarChangeListener(changeListener { index ->
+                val selected = choices[index.coerceIn(0, choices.lastIndex)]
+                prefs.edit().putInt(key, selected).apply()
+                valueText.text = label + ": " + selected + unit
+            })
+            content.addView(slider)
+        }
+        engineChoice("探索スレッド数", "engine_threads", UsiEngineOptions.threadChoices,
+            OverlaySettings.threads(this), "")
+        engineChoice("探索Hash", "engine_hash_mb", UsiEngineOptions.hashChoices,
+            OverlaySettings.hashMb(this), " MB")
+        content.addView(text("高い設定は発熱・電池消費・メモリ使用量が増えます。変更は次回の探索から反映します。", 13f))
+
         content.addView(text("候補数（1〜3）"))
         val countText = text("候補: " + OverlaySettings.count(this), 14f)
         content.addView(countText)
