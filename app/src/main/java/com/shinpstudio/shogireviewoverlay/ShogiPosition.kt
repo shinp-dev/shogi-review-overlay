@@ -84,6 +84,14 @@ data class ShogiMove(
     }
 }
 
+// A legal engine bestmove can be present without an evaluation. Do not
+// invent a numeric score for that case.
+const val UNKNOWN_ENGINE_SCORE = Int.MIN_VALUE
+fun formatEngineScore(score: Int): String = when {
+    score == UNKNOWN_ENGINE_SCORE -> "評価なし"
+    score >= 0 -> "+$score"
+    else -> score.toString()
+}
 data class Candidate(val move: ShogiMove, val score: Int, val label: String)
 
 object Sfen {

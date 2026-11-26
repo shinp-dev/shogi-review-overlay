@@ -145,7 +145,7 @@ class CandidateOverlayView(context: Context) : View(context) {
             }
         }
         val marker = (index + 1).toString() + " " +
-            (if (entry.score >= 0) "+" else "") + entry.score
+            formatEngineScore(entry.score)
         label(
             canvas,
             to.x,
@@ -183,7 +183,7 @@ class CandidateOverlayView(context: Context) : View(context) {
             paint.color = Color.WHITE
             canvas.drawText(item.label, left + dp(31f), rowY, paint)
 
-            val value = (if (item.score >= 0) "+" else "") + item.score
+            val value = formatEngineScore(item.score)
             paint.color = colors[i]
             val valueWidth = paint.measureText(value)
             canvas.drawText(value, left + panelWidth - valueWidth - dp(12f), rowY, paint)

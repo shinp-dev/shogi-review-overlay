@@ -33,6 +33,36 @@ data class UsiPrincipalVariation(
 )
 
 object UsiInfoParser {
+    fun score(pv: UsiPrincipalVariation): Int? {
+        pv.scoreCp?.let { return it }
+        val mate = pv.mate ?: return null
+        // USI permits bare +/- when mate distance is unspecified.
+        return when (mate) {
+            "+" -> 30000
+            "-" -> -30000
+            else -> mate.toIntOrNull()?.let {
+                val distance = kotlin.math.abs(it.toLong()).coerceAtMost(29999).toInt()
+                if (mate.startsWith("-")) -30000 + distance else 30000 - distance
+            }
+        }
+    }
+
+    /** Never invent scores or accept a move not in the current legal set. */
+    fun candidates(
+        position: ShogiPosition, variations: List<UsiPrincipalVariation>,
+        bestmove: String?, count: Int
+    ): List<Candidate> {
+        val legal = ShogiRules.legalMoves(position).associateBy { it.usi() }
+        val scored = variations.sortedBy { it.rank }.mapNotNull { pv ->
+            val move = legal[pv.moves.firstOrNull()] ?: return@mapNotNull null
+            val score = score(pv) ?: return@mapNotNull null
+            Candidate(move, score, move.japanese(position))
+        }.distinctBy { it.move.usi() }
+        if (scored.isNotEmpty()) return scored.take(count.coerceIn(1, 3))
+        val move = legal[bestmove] ?: return emptyList()
+        return listOf(Candidate(move, UNKNOWN_ENGINE_SCORE, move.japanese(position)))
+    }
+
     fun parse(line: String): UsiPrincipalVariation? {
         val tokens = line.trim().split(Regex("\\s+"))
         if (tokens.firstOrNull() != "info" || "pv" !in tokens) return null

@@ -2,6 +2,7 @@ package com.shinpstudio.shogireviewoverlay
 
 import android.content.Context
 import android.os.SystemClock
+import android.util.Log
 import java.io.BufferedReader
 import java.io.BufferedWriter
 import java.io.InputStreamReader
@@ -30,6 +31,7 @@ class UsiEngine(private val context: Context) {
             Thread(runnable, "shogi-usi-reader").apply { isDaemon = true }
         }
         fun send(command: String) {
+            Log.d("ShogiUsi", "> $command")
             writer.write(command)
             writer.newLine()
             writer.flush()
@@ -38,6 +40,7 @@ class UsiEngine(private val context: Context) {
             val task = executor.submit {
                 while (true) {
                     val line = reader.readLine() ?: error("エンジンが終了しました: $expected")
+                    Log.d("ShogiUsi", "< " + line.take(500))
                     if (line.trim() == expected) return@submit
                 }
             }
@@ -55,31 +58,41 @@ class UsiEngine(private val context: Context) {
             send("usinewgame")
             send("position sfen $sfen")
 
-            val output = executor.submit<List<UsiPrincipalVariation>> {
+            val output = executor.submit<Pair<List<UsiPrincipalVariation>, String?>> {
                 val pvByRank = mutableMapOf<Int, UsiPrincipalVariation>()
+                var bestmove: String? = null
                 val deadline = SystemClock.elapsedRealtime() + millis + 5500L
                 while (SystemClock.elapsedRealtime() < deadline) {
-                    val text = reader.readLine() ?: break
-                    if (text.startsWith("bestmove")) break
+                    val text = reader.readLine()?.trim() ?: break
+                    Log.d("ShogiUsi", "< " + text.take(1000))
+                    if (text.startsWith("bestmove ")) {
+                        bestmove = text.split(Regex("\\s+")).getOrNull(1)
+                        break
+                    }
                     val pv = UsiInfoParser.parse(text) ?: continue
-                    if (pv.rank !in 1..count || pv.moves.isEmpty()) continue
+                    if (pv.rank !in 1..count || pv.moves.isEmpty() ||
+                        UsiInfoParser.score(pv) == null) continue
                     val old = pvByRank[pv.rank]
                     if (old == null || pv.depth >= old.depth) pvByRank[pv.rank] = pv
                 }
-                pvByRank.values.sortedBy { it.rank }
+                pvByRank.values.sortedBy { it.rank } to bestmove
             }
             send("go movetime \${millis.coerceIn(250, 7000)}")
-            val multiPv = output.get(millis.coerceIn(250, 7000) + 6500L, TimeUnit.MILLISECONDS)
-            val legalByUsi = ShogiRules.legalMoves(position).associateBy { it.usi() }
-            val parsed = multiPv.mapNotNull { pv ->
-                val move = legalByUsi[pv.moves.firstOrNull()] ?: return@mapNotNull null
-                val score = pv.scoreCp ?: pv.mate?.toIntOrNull()?.let {
-                    if (it >= 0) 30000 - it else -30000 - it
-                } ?: return@mapNotNull null
-                Candidate(move, score, move.japanese(position))
+            val (multiPv, bestmove) = output.get(
+                millis.coerceIn(250, 7000) + 6500L, TimeUnit.MILLISECONDS)
+            val legal = ShogiRules.legalMoves(position)
+            val parsed = UsiInfoParser.candidates(position, multiPv, bestmove, count)
+            Log.i("ShogiUsi", "legal=${legal.size} pv=${multiPv.map { it.moves.firstOrNull() }} " +
+                "bestmove=$bestmove accepted=${parsed.map { it.move.usi() }}")
+            check(parsed.isNotEmpty()) {
+                when {
+                    legal.isEmpty() -> "合法手なし（詰み等）"
+                    bestmove == "resign" || bestmove == "win" -> "エンジン終局応答: $bestmove"
+                    bestmove == null -> "エンジン最善手なし（PV ${multiPv.size}件）"
+                    else -> "エンジン応答 $bestmove を合法手として確認できません（PV ${multiPv.size}件）"
+                }
             }
-            check(parsed.isNotEmpty()) { "エンジンから合法な読み筋を取得できませんでした" }
-            return parsed.take(count.coerceIn(1, 3))
+            return parsed
         } finally {
             try { writer.write("quit\n"); writer.flush() } catch (_: Exception) {}
             try { writer.close() } catch (_: Exception) {}

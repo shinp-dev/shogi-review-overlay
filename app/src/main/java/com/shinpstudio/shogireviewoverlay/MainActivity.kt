@@ -381,7 +381,7 @@ class MainActivity : Activity() {
                     status.text = "やねうら王Material評価値\n" +
                         candidates.mapIndexed { i, candidate ->
                             (i + 1).toString() + ". " + candidate.label +
-                                "  " + (if (candidate.score >= 0) "+" else "") + candidate.score
+                                "  " + formatEngineScore(candidate.score)
                         }.joinToString("\n")
                 }
             } catch (error: Exception) {
