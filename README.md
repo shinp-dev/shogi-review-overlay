@@ -7,7 +7,7 @@
 - AndroidのMediaProjection許可で画面全体を取得し、各マスの外周8%を除外して32×32白黒画像比較。上下左右それぞれ最大4pxの盤面位置ズレを自動探索・補正
 - 設定画面で**将棋ウォーズ／将棋クエスト**を選択。盤面位置・補正値はアプリ別に保存し、各アプリ専用の駒画像テンプレートを利用
 - 盤面を9×9に手動調整。クエストは上下各9候補枠の金色の駒形を検出、ウォーズは上下最大7枠のオレンジの駒形を検出。駒がある枠内だけで駒種・先後・枚数を判定し、持ち駒が復元できなければ従来どおり1手差分で追跡
-- やねうら王 MaterialLv1 をAndroid arm64-v8a向けにビルドしてAPKへ同梱
+- やねうら王 MaterialLv1 のAndroid arm64-v8a向け実行ファイルと対応ソースをリポジトリに同梱し、APKに格納
 - USI MultiPV=1〜3で候補と評価値を取得し、緑/青/橙の盤面矢印と候補一覧に表示
 - 将棋ウォーズ・将棋クエストともに成駒6種類×先後2方向の画像照合に対応。ウォーズは後手向き全6種、クエストは後手向き馬以外5種が回転画像による暫定テンプレート。通常駒は以前のテンプレートも併用
 - SFEN手入力による補正、文字サイズ・思考時間などの設定
@@ -26,7 +26,7 @@
 詳しくは docs/ENGINE.md と docs/RECOGNITION.md を参照。
 
 ## ビルド
-JDK 17・Git・Android SDK API 35 が必要です。Windows/Linuxとも Gradle Wrapper (8.9) でビルドできます。Android SDKの利用許諾は事前に済ませてください。Gradleが必要なNDK r23bと固定リビジョンのやねうら王を自動取得し、MaterialLv1 ARM64実行ファイルをビルド・検証して同梱します。外部モデル、WSL、手動のネイティブビルドは不要です。WindowsではNDKの制約上、スペースのないSDK・リポジトリパスを推奨します。
+JDK 17・Git・Android SDK API 35 が必要です。Windows/Linuxとも Gradle Wrapper (8.9) でビルドできます。Android SDKの利用許諾は事前に済ませてください。やねうら王のARM64実行ファイル・対応ソース・認識モデルはGit管理下に同梱済みです。Gradleは同梱バイナリをSHA-256で検証してAPKに格納します。NDK、上流からのエンジン取得、ネイティブコンパイル、GitHub Actionsは通常ビルドに不要です。
 
 Windowsで実機にインストール:
 
@@ -34,7 +34,7 @@ Windowsで実機にインストール:
 gradlew.bat :app:installDebug
 ```
 
-Linuxでは `./gradlew :app:installDebug`。APKのみ生成する場合は `:app:assembleDebug`、単体テストは `:app:testDebugUnitTest`。初回はダウンロードとC++ビルドが発生し、2回目以降は検証済みの実行ファイルを再利用します。エンジンが生成・検証できない場合はビルドを中止します。
+Linuxでは `./gradlew :app:installDebug`。APKのみ生成する場合は `:app:assembleDebug`、単体テストは `:app:testDebugUnitTest`。初回からリポジトリ同梱の実行ファイルを利用します。欠落・破損時には外部から取得せず、ビルドを中止します。通常のGradle・Android SDK依存関係は別途必要です。
 
 成果物は `app/build/outputs/apk/debug/app-debug.apk`。GitHub ActionsではWindows/LinuxのクリーンビルドとAPK内エンジンの検証を行います。
 
