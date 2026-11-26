@@ -1,15 +1,27 @@
-# Android版やねうら王
+# Android版やねうら王（リポジトリ同梱）
 
-上流: https://github.com/yaneurao/YaneuraOu
-リビジョン: 3bd5141dfd50b3fc6abd9a9db7561d9338a883d0
-版: YANEURAOU_ENGINE_MATERIAL (MaterialLv1)
-Android ABI: arm64-v8a / NDK r23b
-ライセンス: GPL-3.0 (LICENSE-GPL-3.0)
+- 上流: https://github.com/yaneurao/YaneuraOu
+- 固定リビジョン: 3bd5141dfd50b3fc6abd9a9db7561d9338a883d0
+- 版: YANEURAOU_ENGINE_MATERIAL (MaterialLv1)
+- Android ABI: arm64-v8a / NDK r23b (23.1.7779620)
+- ライセンス: GPL-3.0 (LICENSE-GPL-3.0 および上流の同梱ライセンス)
 
-Gradleの prepareYaneuraOu タスクで固定リビジョンの上流ソースを取得し、NDK r23bのndk-buildでPIE実行ファイルを生成し、APKの lib/arm64-v8a/libshogi_engine.so に格納する。これはJNIライブラリではなく、拡張子を.soにしてNative Libraryディレクトリへ展開する実行形式。
+実行ファイルは app/src/main/jniLibs/arm64-v8a/libshogi_engine.so に追跡済み。
+対応する上流ソースは third_party/YaneuraOu、固定リビジョンと SHA-256 は
+third_party/YaneuraOu.REVISION と third_party/YaneuraOu.arm64.sha256。
+通常の Gradle ビルドはローカルの実行ファイルを検証して APK に格納するだけで、
+上流へのアクセス・NDK・ネイティブコンパイルは不要。通常の SDK/Gradle 依存関係は別途必要。
 
-UsiEngine.ktは ProcessBuilder で起動し、usi、setoption MultiPV=1..3、isready、position sfen、go movetime を送る。結果の1手目は合法手として検証して描画に渡す。
+## 対応ソースからの明示的な再ビルド
 
-**NNUE評価関数は未搭載。** MaterialLv1は駒得中心の探索エンジンで、NNUE版と同等の評価精度ではない。NNUE版は別途評価関数モデルのライセンスとAndroidへの配布サイズ・メモリを確認する必要がある。
+NDK r23b をインストールし、third_party/YaneuraOu のディレクトリで
+以下のコマンドを実行する（Windows では ndk-build.cmd）。
 
-やねうら王はGPLv3。配布時は本アプリ・組み込み部を含む対応ソース、上流リビジョン、再現可能なビルド手順、GPL全文を提供する必要がある。配布条件の整合性確認と実機でのUSI起動テストは未完了。
+    ndk-build NDK_PROJECT_PATH=. APP_BUILD_SCRIPT=tools/build/jni/Android.mk NDK_APPLICATION_MK=tools/build/jni/Application.mk YANEURAOU_EDITION=YANEURAOU_ENGINE_MATERIAL MATERIAL_LEVEL=1 APP_ABI=arm64-v8a APP_PLATFORM=android-29 APP_LDFLAGS=-Wl,-z,max-page-size=16384 -j2
+
+出力 libs/arm64-v8a/YaneuraOu_MaterialLv1_arm64-v8a を同梱先へコピーし、
+実行形式と SHA-256 を検証し、ハッシュ記録を更新する。通常ビルドでは実行しない。
+上流とアプリのGPLライセンス・著作権表示を保持する。
+
+UsiEngine.kt は ProcessBuilder で USI 通信を行う。
+NNUE評価関数は未搭載。MaterialLv1 は駒得中心の探索エンジン。
